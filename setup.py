@@ -66,6 +66,8 @@ setuptools.setup(
             "sphinxcontrib-httpdomain",
             "sphinx_rtd_theme",
             "sphinx-autobuild",
+            "isort",
+            "black",
         ],
     },
     entry_points={

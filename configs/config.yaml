@@ -4,22 +4,25 @@
 server:
   host: 0.0.0.0
   port: 8080
+
 oncall_host: http://localhost:8080
 metrics: dummy
 db:
   conn:
     kwargs:
       scheme: mysql+pymysql
-      user: root
-      password: "1234"
-      host: 127.0.0.1
+      user: mariadb
+      password: password
+      host: localhost
       port: 3306
-      database: oncall
+      database: digitaldb
       charset: utf8
       echo: True
     str: "%(scheme)s://%(user)s:%(password)s@%(host)s:%(port)s/%(database)s?charset=%(charset)s"
+    use_ssl: False
   kwargs:
     pool_recycle: 3600
+
 healthcheck_path: /tmp/status
 
 # Keys for encrypting/signing session cookies.
@@ -43,10 +46,16 @@ debug: True
 # Additional auth modules can be added by implementing the Authenticator
 # class, with two required methods: __init__(self, config) and
 # authenticate(self, username, password)
+
+import_user: True
 auth:
-  debug: True
-  module: 'oncall.auth.modules.debug'  # Auth module where Authenticator is implemented
-  sso_module: 'oncall.auth.modules.sso_debug'  # Auth module where SSO Authenticator is implemented
+  debug: False
+  sso_auth_manager: False
+  module: 'oncall.auth.modules.cognito_auth'
+  aws_region: 'ap-south-1'
+  cognito_user_pool_id: 'ap-south-1_yXMM8dS8U'
+  cognito_app_client_id: 'client_id'
+  cognito_app_client_secret: 'client_secret'
 
 # Example configuration for LDAP-based auth
 #   module: 'oncall.auth.modules.ldap_example'
@@ -91,11 +100,12 @@ notifications:
   default_modes:
     - "email"
     # - "teams_messenger"
+    
 # Reminder task settings
 reminder:
   activated: True
   polling_interval: 360  # In seconds, the reminder will poll DB for events every $n seconds
-  default_timezone: 'US/Pacific'  # Dates/times in the reminders are formatted in this timezone
+  default_timezone: 'Asia/Kolkata'  # Dates/times in the reminders are formatted in this timezone
 
 # User validator checks that people scheduled for on-call events have defined phone numbers
 user_validator:
@@ -185,8 +195,10 @@ iris_plan_integration:
       - role: 'team'
       - role: 'manager'
 # CORS settings
-# allow_origins_list:
-#   - http://www.example.com
+allow_origins_list:
+  - http://www.example.com
+  - http://localhost:80
+  - http://localhost:8080
 
 # Configures whether Slack settings will appear in the frontend
 slack_instance: foobar
@@ -194,7 +206,7 @@ slack_instance: foobar
 # Setting to determine whether the Oncall API/frontend is available unauthenticated.
 # Set to True to force login splash page and authentication on API calls and False to allow read
 # APIs without authentication
-require_auth: False
+require_auth: True
 
 ###########################
 ### Oncall bonus management

@@ -1,15 +1,14 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTP_201, HTTPError, HTTPBadRequest
 import time
 
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
-from ... import db, constants
-from ...utils import (
-    load_json_body, gen_link_id, user_in_team_by_name
-)
-from ...auth import login_required, check_calendar_auth
+
+from ... import constants, db
+from ...auth import check_calendar_auth, login_required
+from ...utils import gen_link_id, load_json_body, user_in_team_by_name
 
 
 @login_required
@@ -66,16 +65,16 @@ def on_post(req, resp):
     """
     events = load_json_body(req)
     if not isinstance(events, list):
-        raise HTTPBadRequest('Invalid argument',
-                             'events argument needs to be a list')
+        raise HTTPBadRequest(
+            "Invalid argument", "events argument needs to be a list"
+        )
     if not events:
-        raise HTTPBadRequest('Invalid argument', 'events list cannot be empty')
+        raise HTTPBadRequest("Invalid argument", "events list cannot be empty")
 
     now = time.time()
-    team = events[0].get('team')
+    team = events[0].get("team")
     if not team:
-        raise HTTPBadRequest('Invalid argument',
-                             'event missing team attribute')
+        raise HTTPBadRequest("Invalid argument", "event missing team attribute")
     check_calendar_auth(team, req)
 
     event_values = []
@@ -84,59 +83,89 @@ def on_post(req, resp):
     connection = db.connect()
     cursor = connection.cursor()
 
-    columns = ('`start`', '`end`', '`user_id`', '`team_id`', '`role_id`', '`link_id`, `note`')
+    columns = (
+        "`start`",
+        "`end`",
+        "`user_id`",
+        "`team_id`",
+        "`role_id`",
+        "`link_id`, `note`",
+    )
 
     try:
-        cursor.execute('SELECT `id` FROM `team` WHERE `name`=%s', team)
+        cursor.execute("SELECT `id` FROM `team` WHERE `name`=%s", team)
         team_id = cursor.fetchone()
         if not team_id:
-            raise HTTPBadRequest('Invalid event',
-                                 'Invalid team name: %s' % team)
+            raise HTTPBadRequest(
+                "Invalid event", "Invalid team name: %s" % team
+            )
 
         values = [
-            '%s',
-            '%s',
-            '(SELECT `id` FROM `user` WHERE `name`=%s)',
-            '%s',
-            '(SELECT `id` FROM `role` WHERE `name`=%s)',
-            '%s',
-            '%s'
+            "%s",
+            "%s",
+            "(SELECT `id` FROM `user` WHERE `name`=%s)",
+            "%s",
+            "(SELECT `id` FROM `role` WHERE `name`=%s)",
+            "%s",
+            "%s",
         ]
 
         for ev in events:
-            if ev['start'] < now - constants.GRACE_PERIOD:
-                raise HTTPBadRequest('Invalid event',
-                                     'Creating events in the past not allowed')
-            if ev['start'] >= ev['end']:
-                raise HTTPBadRequest('Invalid event',
-                                     'Event must start before it ends')
-            ev_team = ev.get('team')
+            if ev["start"] < now - constants.GRACE_PERIOD:
+                raise HTTPBadRequest(
+                    "Invalid event", "Creating events in the past not allowed"
+                )
+            if ev["start"] >= ev["end"]:
+                raise HTTPBadRequest(
+                    "Invalid event", "Event must start before it ends"
+                )
+            ev_team = ev.get("team")
             if not ev_team:
-                raise HTTPBadRequest('Invalid event', 'Missing team for event')
+                raise HTTPBadRequest("Invalid event", "Missing team for event")
             if team != ev_team:
-                raise HTTPBadRequest('Invalid event', 'Events can only be submitted to one team')
-            if not user_in_team_by_name(cursor, ev['user'], team):
-                raise HTTPBadRequest('Invalid event',
-                                     'User %s must be part of the team %s' % (ev['user'], team))
-            event_values.append((ev['start'], ev['end'], ev['user'], team_id, ev['role'], link_id, ev.get('note')))
+                raise HTTPBadRequest(
+                    "Invalid event", "Events can only be submitted to one team"
+                )
+            if not user_in_team_by_name(cursor, ev["user"], team):
+                raise HTTPBadRequest(
+                    "Invalid event",
+                    "User %s must be part of the team %s" % (ev["user"], team),
+                )
+            event_values.append(
+                (
+                    ev["start"],
+                    ev["end"],
+                    ev["user"],
+                    team_id,
+                    ev["role"],
+                    link_id,
+                    ev.get("note"),
+                )
+            )
 
-        insert_query = 'INSERT INTO `event` (%s) VALUES (%s)' % (','.join(columns), ','.join(values))
+        insert_query = "INSERT INTO `event` (%s) VALUES (%s)" % (
+            ",".join(columns),
+            ",".join(values),
+        )
         cursor.executemany(insert_query, event_values)
         connection.commit()
-        cursor.execute('SELECT `id` FROM `event` WHERE `link_id`=%s ORDER BY `start`', link_id)
+        cursor.execute(
+            "SELECT `id` FROM `event` WHERE `link_id`=%s ORDER BY `start`",
+            link_id,
+        )
         ev_ids = [row[0] for row in cursor]
     except db.IntegrityError as e:
         err_msg = str(e.args[1])
-        if err_msg == 'Column \'role_id\' cannot be null':
-            err_msg = 'role not found'
-        elif err_msg == 'Column \'user_id\' cannot be null':
-            err_msg = 'user not found'
-        elif err_msg == 'Column \'team_id\' cannot be null':
+        if err_msg == "Column 'role_id' cannot be null":
+            err_msg = "role not found"
+        elif err_msg == "Column 'user_id' cannot be null":
+            err_msg = "user not found"
+        elif err_msg == "Column 'team_id' cannot be null":
             err_msg = 'team "%s" not found' % team
-        raise HTTPError('422 Unprocessable Entity', 'IntegrityError', err_msg)
+        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
     finally:
         cursor.close()
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps({'link_id': link_id, 'event_ids': ev_ids})
+    resp.body = json_dumps({"link_id": link_id, "event_ids": ev_ids})

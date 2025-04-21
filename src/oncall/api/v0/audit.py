@@ -2,18 +2,20 @@
 # See LICENSE in the project root for license information.
 
 from ujson import dumps as json_dumps
+
 from ... import db
 
-
-filters = {'owner': '`owner_name` = %(owner)s',
-           'team': '`team_name` = %(team)s',
-           'action': '`action_name` IN %(action)s',
-           'start': '`timestamp` >= %(start)s',
-           'end': '`timestamp` <= %(end)s'}
+filters = {
+    "owner": "`owner_name` = %(owner)s",
+    "team": "`team_name` = %(team)s",
+    "action": "`action_name` IN %(action)s",
+    "start": "`timestamp` >= %(start)s",
+    "end": "`timestamp` <= %(end)s",
+}
 
 
 def on_get(req, resp):
-    '''
+    """
     Search audit log. Allows filtering based on a number of parameters,
     detailed below. Returns an entry in the audit log, including the name
     of the associated team, action owner, and action type, as well as a
@@ -69,18 +71,20 @@ def on_get(req, resp):
     :query id: id of the event
     :query start: lower bound for audit entry's timestamp (unix timestamp)
     :query end: upper bound for audit entry's timestamp (unix timestamp)
-    '''
+    """
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
-    if 'action' in req.params:
-        req.params['action'] = req.get_param_as_list('action')
+    if "action" in req.params:
+        req.params["action"] = req.get_param_as_list("action")
 
-    query = '''SELECT `owner_name` AS `owner`, `team_name` AS `team`,
+    query = """SELECT `owner_name` AS `owner`, `team_name` AS `team`,
                    `action_name` AS `action`, `timestamp`, `context`
-               FROM `audit`'''
-    where = ' AND '.join(filters[field] for field in req.params if field in filters)
+               FROM `audit`"""
+    where = " AND ".join(
+        filters[field] for field in req.params if field in filters
+    )
     if where:
-        query = '%s WHERE %s' % (query, where)
+        query = "%s WHERE %s" % (query, where)
 
     cursor.execute(query, req.params)
     results = cursor.fetchall()

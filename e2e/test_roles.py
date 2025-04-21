@@ -7,24 +7,25 @@
 import requests
 from testutils import api_v0
 
-role_name = 'test_role'
+role_name = "test_role"
 
 
 def teardown_function():
-    requests.delete(api_v0('roles/' + role_name))
+    requests.delete(api_v0("roles/" + role_name))
+
 
 def test_roles():
     # test adding role type
-    re = requests.post(api_v0('roles'), json={'name': role_name})
+    re = requests.post(api_v0("roles"), json={"name": role_name})
     assert re.status_code == 201
 
     # test getting all roles
-    re = requests.get(api_v0('roles'))
+    re = requests.get(api_v0("roles"))
     assert re.status_code == 200
     roles = re.json()
     assert isinstance(roles, list)
-    assert set([r['name'] for r in roles]) >= set([role_name])
+    assert set([r["name"] for r in roles]) >= set([role_name])
 
     # test delete
-    re = requests.delete(api_v0('roles/'+role_name))
+    re = requests.delete(api_v0("roles/" + role_name))
     assert re.status_code == 200

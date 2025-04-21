@@ -9,6 +9,7 @@ def api_not_found(req, resp):
 
 
 def init(application, config):
-    application.add_sink(api_not_found, '/api/')
+    application.add_sink(api_not_found, "/api/")
     from .v0 import init as init_v0
+
     init_v0(application, config)

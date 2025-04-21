@@ -2,28 +2,34 @@
 # See LICENSE in the project root for license information.
 
 from urllib.parse import unquote
-from falcon import HTTPError, HTTP_201, HTTPBadRequest
+
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
-from ...utils import load_json_body, invalid_char_reg, subscribe_notifications, create_audit
-from ...constants import TEAM_CREATED
 
 from ... import db, iris
 from ...auth import login_required
+from ...constants import TEAM_CREATED
+from ...utils import (
+    create_audit,
+    invalid_char_reg,
+    load_json_body,
+    subscribe_notifications,
+)
 
 constraints = {
-    'name': '`team`.`name` = %s',
-    'name__eq': '`team`.`name` = %s',
-    'name__contains': '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'name__startswith': '`team`.`name` LIKE CONCAT(%s, "%%")',
-    'name__endswith': '`team`.`name` LIKE CONCAT("%%", %s)',
-    'id': '`team`.`id` = %s',
-    'id__eq': '`team`.`id` = %s',
-    'active': '`team`.`active` = %s',
-    'email': '`team`.`email` = %s',
-    'email__eq': '`team`.`email` = %s',
-    'email__contains': '`team`.`email` LIKE CONCAT("%%", %s, "%%")',
-    'email__startswith': '`team`.`email` LIKE CONCAT(%s, "%%")',
-    'email__endswith': '`team`.`email` LIKE CONCAT("%%", %s)',
+    "name": "`team`.`name` = %s",
+    "name__eq": "`team`.`name` = %s",
+    "name__contains": '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "name__startswith": '`team`.`name` LIKE CONCAT(%s, "%%")',
+    "name__endswith": '`team`.`name` LIKE CONCAT("%%", %s)',
+    "id": "`team`.`id` = %s",
+    "id__eq": "`team`.`id` = %s",
+    "active": "`team`.`active` = %s",
+    "email": "`team`.`email` = %s",
+    "email__eq": "`team`.`email` = %s",
+    "email__contains": '`team`.`email` LIKE CONCAT("%%", %s, "%%")',
+    "email__startswith": '`team`.`email` LIKE CONCAT(%s, "%%")',
+    "email__endswith": '`team`.`email` LIKE CONCAT("%%", %s)',
 }
 
 
@@ -31,15 +37,18 @@ def get_team_ids(cursor, team_names):
     if not team_names:
         return []
 
-    team_query = 'SELECT DISTINCT `id` FROM `team` WHERE `name` IN ({0})'.format(
-        ','.join(['%s'] * len(team_names)))
+    team_query = (
+        "SELECT DISTINCT `id` FROM `team` WHERE `name` IN ({0})".format(
+            ",".join(["%s"] * len(team_names))
+        )
+    )
     # we need prepared statements here because team_names come from user input
     cursor.execute(team_query, team_names)
-    return [row['id'] for row in cursor]
+    return [row["id"] for row in cursor]
 
 
 def on_get(req, resp):
-    '''
+    """
     Search for team names. Allows filtering based on a number of parameters, detailed below.
     Returns list of matching team names. If "active" parameter is unspecified, defaults to
     True (only displaying undeleted teams)
@@ -77,11 +86,11 @@ def on_get(req, resp):
             "team-bar"
         ]
 
-    '''
+    """
 
-    query = 'SELECT `name`, `id` FROM `team`'
-    if 'active' not in req.params:
-        req.params['active'] = True
+    query = "SELECT `name`, `id` FROM `team`"
+    if "active" not in req.params:
+        req.params["active"] = True
 
     connection = db.connect()
     cursor = connection.cursor()
@@ -92,13 +101,13 @@ def on_get(req, resp):
         if key in constraints:
             keys.append(key)
             query_values.append(value)
-    where_query = ' AND '.join(constraints[key]for key in keys)
+    where_query = " AND ".join(constraints[key] for key in keys)
     if where_query:
-        query = '%s WHERE %s' % (query, where_query)
+        query = "%s WHERE %s" % (query, where_query)
 
     cursor.execute(query, query_values)
     data = [None]
-    if req.get_param_as_bool('get_id'):
+    if req.get_param_as_bool("get_id"):
         data = [(r[0], r[1]) for r in cursor]
     else:
         data = [r[0] for r in cursor]
@@ -109,7 +118,7 @@ def on_get(req, resp):
 
 @login_required
 def on_post(req, resp):
-    '''
+    """
     Endpoint for team creation. The user who creates the team is automatically added as a
     team admin. Because of this, this endpoint cannot be called using an API key, otherwise
     a team would have no admins, making many team operations impossible.
@@ -153,76 +162,109 @@ def on_post(req, resp):
     :statuscode 201: Successful create
     :statuscode 400: Error in creating team. Possible errors: API key auth not allowed, invalid attributes, missing required attributes
     :statuscode 422: Duplicate team name
-    '''
+    """
 
     data = load_json_body(req)
-    if not data.get('name'):
-        raise HTTPBadRequest('', 'name attribute missing from request')
-    if not data.get('scheduling_timezone'):
-        raise HTTPBadRequest('', 'scheduling_timezone attribute missing from request')
-    team_name = unquote(data['name']).strip()
+    if not data.get("name"):
+        raise HTTPBadRequest("", "name attribute missing from request")
+    if not data.get("scheduling_timezone"):
+        raise HTTPBadRequest(
+            "", "scheduling_timezone attribute missing from request"
+        )
+    team_name = unquote(data["name"]).strip()
     invalid_char = invalid_char_reg.search(team_name)
     if invalid_char:
-        raise HTTPBadRequest('invalid team name',
-                             'team name contains invalid character "%s"' % invalid_char.group())
+        raise HTTPBadRequest(
+            "invalid team name",
+            'team name contains invalid character "%s"' % invalid_char.group(),
+        )
 
-    scheduling_timezone = unquote(data['scheduling_timezone'])
-    slack = data.get('slack_channel')
-    if slack and slack[0] != '#':
-        raise HTTPBadRequest('invalid slack channel',
-                             'slack channel name needs to start with #')
-    slack_notifications = data.get('slack_channel_notifications')
-    if slack_notifications and slack_notifications[0] != '#':
-        raise HTTPBadRequest('invalid slack notifications channel',
-                             'slack channel notifications name needs to start with #')
-    email = data.get('email')
-    description = data.get('description')
-    iris_plan = data.get('iris_plan')
-    iris_enabled = data.get('iris_enabled', False)
-    override_number = data.get('override_phone_number')
+    scheduling_timezone = unquote(data["scheduling_timezone"])
+    slack = data.get("slack_channel")
+    if slack and slack[0] != "#":
+        raise HTTPBadRequest(
+            "invalid slack channel", "slack channel name needs to start with #"
+        )
+    slack_notifications = data.get("slack_channel_notifications")
+    if slack_notifications and slack_notifications[0] != "#":
+        raise HTTPBadRequest(
+            "invalid slack notifications channel",
+            "slack channel notifications name needs to start with #",
+        )
+    email = data.get("email")
+    description = data.get("description")
+    iris_plan = data.get("iris_plan")
+    iris_enabled = data.get("iris_enabled", False)
+    override_number = data.get("override_phone_number")
     if not override_number:
         override_number = None
 
     # validate Iris plan if provided and Iris is configured
     if iris_plan is not None and iris.client is not None:
-        plan_resp = iris.client.get(iris.client.url + 'plans?name=%s&active=1' % iris_plan)
+        plan_resp = iris.client.get(
+            iris.client.url + "plans?name=%s&active=1" % iris_plan
+        )
         if plan_resp.status_code != 200 or plan_resp.json() == []:
-            raise HTTPBadRequest('invalid iris escalation plan', 'no iris plan named %s exists' % iris_plan)
+            raise HTTPBadRequest(
+                "invalid iris escalation plan",
+                "no iris plan named %s exists" % iris_plan,
+            )
 
     connection = db.connect()
     cursor = connection.cursor()
     # if team creation request is coming from api use the username from the admin field in lieu of the user context var
-    if 'user' not in req.context:
-        if not data.get('admin'):
-            raise HTTPBadRequest('invalid admin', 'API requests must specify a team admin username in the admin field')
-        user = data.get('admin')
-        cursor.execute('''SELECT `id` FROM `user` WHERE `name` = %s LIMIT 1''', (user, ))
+    if "user" not in req.context:
+        if not data.get("admin"):
+            raise HTTPBadRequest(
+                "invalid admin",
+                "API requests must specify a team admin username in the admin field",
+            )
+        user = data.get("admin")
+        cursor.execute(
+            """SELECT `id` FROM `user` WHERE `name` = %s LIMIT 1""", (user,)
+        )
         if cursor.rowcount == 0:
-            raise HTTPBadRequest('invalid admin', 'admin username %s was not found in db' % user)
-        req.context['user'] = user
+            raise HTTPBadRequest(
+                "invalid admin", "admin username %s was not found in db" % user
+            )
+        req.context["user"] = user
 
     try:
-        cursor.execute('''INSERT INTO `team` (`name`, `slack_channel`, `slack_channel_notifications`, `email`, `scheduling_timezone`,
+        cursor.execute(
+            """INSERT INTO `team` (`name`, `slack_channel`, `slack_channel_notifications`, `email`, `scheduling_timezone`,
                                               `iris_plan`, `iris_enabled`, `override_phone_number`, `description`)
-                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
-                       (team_name, slack, slack_notifications, email, scheduling_timezone, iris_plan, iris_enabled, override_number, description))
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                team_name,
+                slack,
+                slack_notifications,
+                email,
+                scheduling_timezone,
+                iris_plan,
+                iris_enabled,
+                override_number,
+                description,
+            ),
+        )
 
         team_id = cursor.lastrowid
-        query = '''
+        query = """
             INSERT INTO `team_user` (`team_id`, `user_id`)
-            VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s))'''
-        cursor.execute(query, (team_id, req.context['user']))
-        query = '''
+            VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s))"""
+        cursor.execute(query, (team_id, req.context["user"]))
+        query = """
             INSERT INTO `team_admin` (`team_id`, `user_id`)
-            VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s))'''
-        cursor.execute(query, (team_id, req.context['user']))
-        subscribe_notifications(team_name, req.context['user'], cursor)
-        create_audit({'team_id': team_id}, team_name, TEAM_CREATED, req, cursor)
+            VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s))"""
+        cursor.execute(query, (team_id, req.context["user"]))
+        subscribe_notifications(team_name, req.context["user"], cursor)
+        create_audit({"team_id": team_id}, team_name, TEAM_CREATED, req, cursor)
         connection.commit()
     except db.IntegrityError:
-        raise HTTPError('422 Unprocessable Entity',
-                        'IntegrityError',
-                        'team name "%s" already exists' % team_name)
+        raise HTTPError(
+            "422 Unprocessable Entity",
+            "IntegrityError",
+            'team name "%s" already exists' % team_name,
+        )
     finally:
         cursor.close()
         connection.close()

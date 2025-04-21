@@ -3,10 +3,10 @@
 
 from falcon import HTTPNotFound
 from ujson import dumps
-from ...utils import load_json_body
 
 from ... import db
 from ...auth import debug_only
+from ...utils import load_json_body
 
 
 def on_get(req, resp, service):
@@ -36,7 +36,9 @@ def on_get(req, resp, service):
     """
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
-    cursor.execute('SELECT `id`, `name` FROM `service` WHERE `name`=%s', service)
+    cursor.execute(
+        "SELECT `id`, `name` FROM `service` WHERE `name`=%s", service
+    )
     results = cursor.fetchall()
     if not results:
         raise HTTPNotFound()
@@ -54,8 +56,10 @@ def on_put(req, resp, service):
     data = load_json_body(req)
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('UPDATE `service` SET `name`=%s WHERE `name`=%s',
-                   (data['name'], service))
+    cursor.execute(
+        "UPDATE `service` SET `name`=%s WHERE `name`=%s",
+        (data["name"], service),
+    )
     connection.commit()
     cursor.close()
     connection.close()
@@ -70,7 +74,7 @@ def on_delete(req, resp, service):
     cursor = connection.cursor()
 
     # FIXME: also delete team service mappings?
-    cursor.execute('DELETE FROM `service` WHERE `name`=%s', service)
+    cursor.execute("DELETE FROM `service` WHERE `name`=%s", service)
     deleted = cursor.rowcount
     connection.commit()
     cursor.close()

@@ -6,8 +6,8 @@ from urllib.parse import unquote
 from falcon import HTTPNotFound
 from ujson import dumps as json_dumps
 
-from ...auth import login_required, check_team_auth
 from ... import db
+from ...auth import check_team_auth, login_required
 
 
 def on_get(req, resp):
@@ -35,13 +35,13 @@ def on_get(req, resp):
             }
         ]
     """
-    query = '''SELECT `team`.`name` as team_name, `service`.`name` as service_name FROM `team_service`
+    query = """SELECT `team`.`name` as team_name, `service`.`name` as service_name FROM `team_service`
                       JOIN `service` ON `team_service`.`service_id`=`service`.`id`
-                      JOIN `team` ON `team_service`.`team_id`=`team`.`id`'''
+                      JOIN `team` ON `team_service`.`team_id`=`team`.`id`"""
     connection = db.connect()
     cursor = connection.cursor()
     cursor.execute(query)
-    data = [{'team': r[0], 'service': r[1]} for r in cursor]
+    data = [{"team": r[0], "service": r[1]} for r in cursor]
     cursor.close()
     connection.close()
     resp.body = json_dumps(data)
@@ -66,10 +66,12 @@ def on_delete(req, resp, team, service):
     connection = db.connect()
     cursor = connection.cursor()
 
-    cursor.execute('''DELETE FROM `team_service`
+    cursor.execute(
+        """DELETE FROM `team_service`
                       WHERE `team_id`=(SELECT `id` FROM `team` WHERE `name`=%s)
-                      AND `service_id`=(SELECT `id` FROM `service` WHERE `name`=%s)''',
-                   (team, service))
+                      AND `service_id`=(SELECT `id` FROM `service` WHERE `name`=%s)""",
+        (team, service),
+    )
     deleted = cursor.rowcount
     if deleted == 0:
         raise HTTPNotFound()

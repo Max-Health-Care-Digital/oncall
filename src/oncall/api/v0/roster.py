@@ -2,15 +2,15 @@
 # See LICENSE in the project root for license information.
 
 from urllib.parse import unquote
-from falcon import HTTPError, HTTPNotFound, HTTPBadRequest
+
+from falcon import HTTPBadRequest, HTTPError, HTTPNotFound
 from ujson import dumps as json_dumps
 
-from ...auth import login_required, check_team_auth
 from ... import db
-from ...utils import load_json_body, invalid_char_reg
-from .schedules import get_schedules
+from ...auth import check_team_auth, login_required
 from ...constants import ROSTER_DELETED, ROSTER_EDITED
-from ...utils import create_audit
+from ...utils import create_audit, invalid_char_reg, load_json_body
+from .schedules import get_schedules
 
 
 def on_get(req, resp, team, roster):
@@ -65,29 +65,34 @@ def on_get(req, resp, team, roster):
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
 
-    cursor.execute('''SELECT `roster`.`id` AS `roster`, `team`.`id` AS `team` FROM `roster`
+    cursor.execute(
+        """SELECT `roster`.`id` AS `roster`, `team`.`id` AS `team` FROM `roster`
                       JOIN `team` ON `team`.`id`=`roster`.`team_id`
-                      WHERE `team`.`name`=%s AND `roster`.`name`=%s''',
-                   (team, roster))
+                      WHERE `team`.`name`=%s AND `roster`.`name`=%s""",
+        (team, roster),
+    )
     results = cursor.fetchall()
     if not results:
         raise HTTPNotFound()
-    team_id = results[0]['team']
-    roster_id = results[0]['roster']
+    team_id = results[0]["team"]
+    roster_id = results[0]["roster"]
     # get list of users in the roster
-    cursor.execute('''SELECT `user`.`name` as `name`,
+    cursor.execute(
+        """SELECT `user`.`name` as `name`,
                              `roster_user`.`in_rotation` AS `in_rotation`,
                              `roster_user`.`roster_priority`
                       FROM `roster_user`
                       JOIN `user` ON `roster_user`.`user_id`=`user`.`id`
-                      WHERE `roster_user`.`roster_id`=%s''', roster_id)
+                      WHERE `roster_user`.`roster_id`=%s""",
+        roster_id,
+    )
     users = [user for user in cursor]
     # get list of schedule in the roster
-    schedules = get_schedules({'team_id': team_id}, dbinfo=(connection, cursor))
+    schedules = get_schedules({"team_id": team_id}, dbinfo=(connection, cursor))
 
     cursor.close()
     connection.close()
-    resp.body = json_dumps({'users': users, 'schedules': schedules})
+    resp.body = json_dumps({"users": users, "schedules": schedules})
 
 
 @login_required
@@ -111,53 +116,78 @@ def on_put(req, resp, team, roster):
     """
     team, roster = unquote(team), unquote(roster)
     data = load_json_body(req)
-    name = data.get('name')
-    roster_order = data.get('roster_order')
+    name = data.get("name")
+    roster_order = data.get("roster_order")
     check_team_auth(team, req)
 
     if not (name or roster_order):
-        raise HTTPBadRequest('invalid roster update', 'missing roster name or order')
+        raise HTTPBadRequest(
+            "invalid roster update", "missing roster name or order"
+        )
 
     connection = db.connect()
     cursor = connection.cursor()
     try:
         if roster_order:
-            cursor.execute('''SELECT `user`.`name` FROM `roster_user`
+            cursor.execute(
+                """SELECT `user`.`name` FROM `roster_user`
                               JOIN `roster` ON `roster`.`id` = `roster_user`.`roster_id`
                               JOIN `user` ON `roster_user`.`user_id` = `user`.`id`
                               WHERE `roster_id` = (SELECT id FROM roster WHERE name = %s
-                                AND team_id = (SELECT id from team WHERE name = %s))''',
-                           (roster, team))
+                                AND team_id = (SELECT id from team WHERE name = %s))""",
+                (roster, team),
+            )
             roster_users = {row[0] for row in cursor}
             if not all([x in roster_users for x in roster_order]):
-                raise HTTPBadRequest('Invalid roster order', 'All users in provided order must be part of the roster')
+                raise HTTPBadRequest(
+                    "Invalid roster order",
+                    "All users in provided order must be part of the roster",
+                )
             if not len(roster_order) == len(roster_users):
-                raise HTTPBadRequest('Invalid roster order', 'Roster order must include all roster members')
+                raise HTTPBadRequest(
+                    "Invalid roster order",
+                    "Roster order must include all roster members",
+                )
 
-            cursor.executemany('''UPDATE roster_user SET roster_priority = %s
+            cursor.executemany(
+                """UPDATE roster_user SET roster_priority = %s
                                   WHERE roster_id = (SELECT id FROM roster WHERE name = %s
                                     AND team_id = (SELECT id FROM team WHERE name = %s))
-                                  AND user_id = (SELECT id FROM user WHERE name = %s)''',
-                               ((idx, roster, team, user) for idx, user in enumerate(roster_order)))
+                                  AND user_id = (SELECT id FROM user WHERE name = %s)""",
+                (
+                    (idx, roster, team, user)
+                    for idx, user in enumerate(roster_order)
+                ),
+            )
             connection.commit()
 
         if name and name != roster:
             invalid_char = invalid_char_reg.search(name)
             if invalid_char:
-                raise HTTPBadRequest('invalid roster name',
-                                     'roster name contains invalid character "%s"' % invalid_char.group())
+                raise HTTPBadRequest(
+                    "invalid roster name",
+                    'roster name contains invalid character "%s"'
+                    % invalid_char.group(),
+                )
             cursor.execute(
-                '''UPDATE `roster` SET `name`=%s
+                """UPDATE `roster` SET `name`=%s
                    WHERE `team_id`=(SELECT `id` FROM `team` WHERE `name`=%s)
-                       AND `name`=%s''',
-                (name, team, roster))
-            create_audit({'old_name': roster, 'new_name': name}, team, ROSTER_EDITED, req, cursor)
+                       AND `name`=%s""",
+                (name, team, roster),
+            )
+            create_audit(
+                {"old_name": roster, "new_name": name},
+                team,
+                ROSTER_EDITED,
+                req,
+                cursor,
+            )
             connection.commit()
     except db.IntegrityError as e:
         err_msg = str(e.args[1])
-        if 'Duplicate entry' in err_msg:
+        if "Duplicate entry" in err_msg:
             err_msg = "roster '%s' already existed for team '%s'" % (name, team)
-        raise HTTPError('422 Unprocessable Entity', 'IntegrityError', err_msg)
+        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
     finally:
         cursor.close()
         connection.close()
@@ -173,32 +203,39 @@ def on_delete(req, resp, team, roster):
     connection = db.connect()
     cursor = connection.cursor()
 
-    cursor.execute('SELECT `user_id` FROM `roster_user` JOIN `roster` ON `roster_user`.`roster_id` = `roster`.`id` '
-                   'WHERE `roster`.`name` = %s AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)',
-                   (roster, team))
+    cursor.execute(
+        "SELECT `user_id` FROM `roster_user` JOIN `roster` ON `roster_user`.`roster_id` = `roster`.`id` "
+        "WHERE `roster`.`name` = %s AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)",
+        (roster, team),
+    )
     user_ids = cursor.fetchall()
-    cursor.execute('DELETE FROM `roster_user` WHERE `roster_id` = (SELECT `id` FROM `roster` WHERE `name` = %s '
-                   'AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s))', (roster, team))
+    cursor.execute(
+        "DELETE FROM `roster_user` WHERE `roster_id` = (SELECT `id` FROM `roster` WHERE `name` = %s "
+        "AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s))",
+        (roster, team),
+    )
 
     if user_ids:
         # Remove users from the team if needed
-        query = '''DELETE FROM `team_user` WHERE `user_id` IN %s AND `user_id` NOT IN
+        query = """DELETE FROM `team_user` WHERE `user_id` IN %s AND `user_id` NOT IN
                        (SELECT `roster_user`.`user_id`
                         FROM `roster_user` JOIN `roster` ON `roster`.`id` = `roster_user`.`roster_id`
                         WHERE team_id = (SELECT `id` FROM `team` WHERE `name`=%s)
                        UNION
                        (SELECT `user_id` FROM `team_admin`
                         WHERE `team_id` = (SELECT `id` FROM `team` WHERE `name`=%s)))
-                   AND `team_user`.`team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)'''
+                   AND `team_user`.`team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)"""
         cursor.execute(query, (user_ids, team, team, team))
 
-    cursor.execute('''DELETE FROM `roster`
+    cursor.execute(
+        """DELETE FROM `roster`
                       WHERE `team_id`=(SELECT `id` FROM `team` WHERE `name`=%s)
-                      AND `name`=%s''',
-                   (team, roster))
+                      AND `name`=%s""",
+        (team, roster),
+    )
     deleted = cursor.rowcount
     if deleted:
-        create_audit({'name': roster}, team, ROSTER_DELETED, req, cursor)
+        create_audit({"name": roster}, team, ROSTER_DELETED, req, cursor)
 
     connection.commit()
     cursor.close()

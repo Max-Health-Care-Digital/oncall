@@ -5,6 +5,7 @@
 # See LICENSE in the project root for license information.
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,4 +14,4 @@ class dummy(object):
         self.appname = appname
 
     def send_metrics(self, metrics):
-        logger.debug('sending metrics: %s', metrics)
+        logger.debug("sending metrics: %s", metrics)

@@ -5,10 +5,10 @@ from .. import db
 
 
 def on_post(req, resp):
-    session = req.env['beaker.session']
+    session = req.env["beaker.session"]
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('DELETE FROM `session` WHERE `id` = %s', session['_id'])
+    cursor.execute("DELETE FROM `session` WHERE `id` = %s", session["_id"])
     connection.commit()
     cursor.close()
     connection.close()

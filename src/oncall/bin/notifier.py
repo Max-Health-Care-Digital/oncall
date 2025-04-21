@@ -1,14 +1,15 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
-import sys
-import yaml
 import logging
 import logging.handlers
-import time
 import os
+import sys
+import time
 from importlib import import_module
+
+import yaml
+from gevent import queue, sleep, spawn
 from ujson import loads as json_loads
-from gevent import queue, spawn, sleep
 
 from oncall import db, metrics
 from oncall.messengers import init_messengers, send_message
@@ -16,10 +17,12 @@ from oncall.notifier import reminder, user_validator
 
 # logging
 logger = logging.getLogger()
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
-log_file = os.environ.get('NOTIFIER_LOG_FILE')
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+log_file = os.environ.get("NOTIFIER_LOG_FILE")
 if log_file:
-    ch = logging.handlers.RotatingFileHandler(log_file, mode='a', maxBytes=10485760, backupCount=10)
+    ch = logging.handlers.RotatingFileHandler(
+        log_file, mode="a", maxBytes=10485760, backupCount=10
+    )
 else:
     ch = logging.StreamHandler(sys.stdout)
 ch.setFormatter(formatter)
@@ -34,39 +37,41 @@ default_timezone = None
 
 
 def load_config_file(config_path):
-    with open(config_path, 'r', encoding='utf-8') as h:
+    with open(config_path, "r", encoding="utf-8") as h:
         config = yaml.safe_load(h)
 
-    if 'init_config_hook' in config:
+    if "init_config_hook" in config:
         try:
-            module = config['init_config_hook']
-            logging.info('Bootstrapping config using %s' % module)
-            getattr(import_module(module), module.split('.')[-1])(config)
+            module = config["init_config_hook"]
+            logging.info("Bootstrapping config using %s" % module)
+            getattr(import_module(module), module.split(".")[-1])(config)
         except ImportError:
-            logger.exception('Failed loading config hook %s' % module)
+            logger.exception("Failed loading config hook %s" % module)
 
     return config
 
 
 def init_notifier(config):
-    db.init(config['db'])
+    db.init(config["db"])
     global default_timezone
-    default_timezone = config['notifier'].get('default_timezone', 'US/Pacific')
-    if config['notifier']['skipsend']:
+    default_timezone = config["notifier"].get("default_timezone", "US/Pacific")
+    if config["notifier"]["skipsend"]:
         global send_message
         send_message = blackhole
 
 
 def blackhole(msg):
-    logger.info('Sent message %s' % msg)
-    metrics.stats['message_blackhole_cnt'] += 1
+    logger.info("Sent message %s" % msg)
+    metrics.stats["message_blackhole_cnt"] += 1
 
 
 def mark_message_as_sent(msg_info):
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('UPDATE `notification_queue` SET `active` = 0, `sent` = 1 WHERE `id` = %s',
-                   msg_info['id'])
+    cursor.execute(
+        "UPDATE `notification_queue` SET `active` = 0, `sent` = 1 WHERE `id` = %s",
+        msg_info["id"],
+    )
     connection.commit()
     connection.close()
     cursor.close()
@@ -75,22 +80,24 @@ def mark_message_as_sent(msg_info):
 def mark_message_as_unsent(msg_info):
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('UPDATE `notification_queue` SET `active` = 0, `sent` = 0 WHERE `id` = %s',
-                   msg_info['id'])
+    cursor.execute(
+        "UPDATE `notification_queue` SET `active` = 0, `sent` = 0 WHERE `id` = %s",
+        msg_info["id"],
+    )
     connection.commit()
     connection.close()
     cursor.close()
 
 
 def poll():
-    query = '''SELECT `user`.`name` AS `user`, `contact_mode`.`name` AS `mode`, `notification_queue`.`send_time`,
+    query = """SELECT `user`.`name` AS `user`, `contact_mode`.`name` AS `mode`, `notification_queue`.`send_time`,
                       `user`.`time_zone`,`notification_type`.`subject`, `notification_queue`.`context`,
                       `notification_type`.`body`, `notification_queue`.`id`
                FROM `notification_queue` JOIN `user` ON `notification_queue`.`user_id` = `user`.`id`
                    JOIN `contact_mode` ON `notification_queue`.`mode_id` = `contact_mode`.`id`
                    JOIN `notification_type` ON `notification_queue`.`type_id` = `notification_type`.`id`
-               WHERE `notification_queue`.`active` = 1 AND `notification_queue`.`send_time` <= UNIX_TIMESTAMP()'''
-    logger.info('[-] start send task...')
+               WHERE `notification_queue`.`active` = 1 AND `notification_queue`.`send_time` <= UNIX_TIMESTAMP()"""
+    logger.info("[-] start send task...")
 
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
@@ -109,20 +116,20 @@ def worker():
 def format_and_send_message():
     msg_info = send_queue.get()
     msg = {}
-    msg['user'] = msg_info['user']
-    msg['mode'] = msg_info['mode']
-    context = json_loads(msg_info['context'])
-    msg['subject'] = msg_info['subject'] % context
-    msg['body'] = msg_info['body'] % context
+    msg["user"] = msg_info["user"]
+    msg["mode"] = msg_info["mode"]
+    context = json_loads(msg_info["context"])
+    msg["subject"] = msg_info["subject"] % context
+    msg["body"] = msg_info["body"] % context
     try:
         send_message(msg)
     except Exception:
-        logger.exception('Failed to send message %s', msg)
+        logger.exception("Failed to send message %s", msg)
         mark_message_as_unsent(msg_info)
-        metrics.stats['message_fail_cnt'] += 1
+        metrics.stats["message_fail_cnt"] += 1
     else:
         mark_message_as_sent(msg_info)
-        metrics.stats['message_sent_cnt'] += 1
+        metrics.stats["message_sent_cnt"] += 1
 
 
 def metrics_sender():
@@ -132,36 +139,46 @@ def metrics_sender():
 
 
 def main():
-    with open(sys.argv[1], 'r', encoding='utf-8') as config_file:
+    with open(sys.argv[1], "r", encoding="utf-8") as config_file:
         config = yaml.safe_load(config_file)
 
     init_notifier(config)
     metrics_on = False
-    if 'metrics' in config:
-        metrics.init(config, 'oncall-notifier', {'message_blackhole_cnt': 0, 'message_sent_cnt': 0, 'message_fail_cnt': 0})
+    if "metrics" in config:
+        metrics.init(
+            config,
+            "oncall-notifier",
+            {
+                "message_blackhole_cnt": 0,
+                "message_sent_cnt": 0,
+                "message_fail_cnt": 0,
+            },
+        )
         metrics_worker = spawn(metrics_sender)
         metrics_on = True
     else:
-        logger.warning('Not running with metrics')
+        logger.warning("Not running with metrics")
 
-    init_messengers(config.get('messengers', []))
+    init_messengers(config.get("messengers", []))
 
     worker_tasks = [spawn(worker) for x in range(100)]
     reminder_on = False
-    if config['reminder']['activated']:
-        reminder_worker = spawn(reminder.reminder, config['reminder'])
+    if config["reminder"]["activated"]:
+        reminder_worker = spawn(reminder.reminder, config["reminder"])
         reminder_on = True
     validator_on = False
-    if config['user_validator']['activated']:
-        validator_worker = spawn(user_validator.user_validator, config['user_validator'])
+    if config["user_validator"]["activated"]:
+        validator_worker = spawn(
+            user_validator.user_validator, config["user_validator"]
+        )
         validator_on = True
 
     interval = 60
 
-    logger.info('[*] notifier bootstrapped')
+    logger.info("[*] notifier bootstrapped")
     while True:
         runtime = int(time.time())
-        logger.info('--> notifier loop started.')
+        logger.info("--> notifier loop started.")
         poll()
 
         # check status for all background greenlets and respawn if necessary
@@ -177,19 +194,28 @@ def main():
             logger.error("metrics worker failed, %s", metrics_worker.exception)
             metrics_worker = spawn(metrics_sender)
         if reminder_on and not bool(reminder_worker):
-            logger.error("reminder worker failed, %s", reminder_worker.exception)
-            reminder_worker = spawn(reminder.reminder, config['reminder'])
+            logger.error(
+                "reminder worker failed, %s", reminder_worker.exception
+            )
+            reminder_worker = spawn(reminder.reminder, config["reminder"])
         if validator_on and not bool(validator_worker):
-            logger.error("user validator failed, %s", validator_worker.exception)
-            validator_worker = spawn(user_validator.user_validator, config['user_validator'])
+            logger.error(
+                "user validator failed, %s", validator_worker.exception
+            )
+            validator_worker = spawn(
+                user_validator.user_validator, config["user_validator"]
+            )
 
         now = time.time()
         elapsed_time = now - runtime
         nap_time = max(0, interval - elapsed_time)
-        logger.info('--> notifier loop finished in %s seconds - sleeping %s seconds',
-                    elapsed_time, nap_time)
+        logger.info(
+            "--> notifier loop finished in %s seconds - sleeping %s seconds",
+            elapsed_time,
+            nap_time,
+        )
         sleep(nap_time)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

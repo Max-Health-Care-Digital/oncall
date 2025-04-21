@@ -2,11 +2,12 @@
 # See LICENSE in the project root for license information.
 
 from ujson import dumps as json_dumps
+
 from ... import db
 
 
 def on_get(req, resp, service, role=None):
-    '''
+    """
     Get the current user on-call for a given service/role. Returns event start/end, contact info,
     and user name.
 
@@ -39,8 +40,8 @@ def on_get(req, resp, service, role=None):
             }
         ]
 
-    '''
-    get_oncall_query = '''
+    """
+    get_oncall_query = """
         SELECT `user`.`full_name` AS `full_name`,
                `event`.`start`, `event`.`end`,
                `contact_mode`.`name` AS `mode`,
@@ -57,20 +58,24 @@ def on_get(req, resp, service, role=None):
         LEFT JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`
         LEFT JOIN `contact_mode` ON `contact_mode`.`id` = `user_contact`.`mode_id`
         WHERE UNIX_TIMESTAMP() BETWEEN `event`.`start` AND `event`.`end`
-            AND (`team`.`id` IN %s OR `team_subscription`.`team_id` IN %s)'''
+            AND (`team`.`id` IN %s OR `team_subscription`.`team_id` IN %s)"""
 
     query_params = []
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
     # Get subscription teams for teams owning the service, along with the teams that own the service
-    cursor.execute('''SELECT `team_id`, `team`.`override_phone_number`, `team`.`name` FROM `team_service`
+    cursor.execute(
+        """SELECT `team_id`, `team`.`override_phone_number`, `team`.`name` FROM `team_service`
                       JOIN `service` ON `service`.`id` = `team_service`.`service_id`
                       JOIN `team` ON `team`.`id` = `team_service`.`team_id`
-                      WHERE `service`.`name` = %s''',
-                   service)
+                      WHERE `service`.`name` = %s""",
+        service,
+    )
     data = cursor.fetchall()
-    team_ids = [row['team_id'] for row in data]
-    team_override_numbers = {row['name']: row['override_phone_number'] for row in data}
+    team_ids = [row["team_id"] for row in data]
+    team_override_numbers = {
+        row["name"]: row["override_phone_number"] for row in data
+    }
     if not team_ids:
         resp.body = json_dumps([])
         cursor.close()
@@ -78,28 +83,28 @@ def on_get(req, resp, service, role=None):
         return
     query_params += [team_ids, team_ids]
     if role is not None:
-        get_oncall_query += ' AND `role`.`name` = %s'
+        get_oncall_query += " AND `role`.`name` = %s"
         query_params.append(role)
     cursor.execute(get_oncall_query, query_params)
     data = cursor.fetchall()
     ret = {}
     for row in data:
-        user = row['user']
+        user = row["user"]
         # add data row into accumulator only if not already there
         if user not in ret:
             ret[user] = row
-            ret[user]['contacts'] = {}
-        mode = row.pop('mode')
+            ret[user]["contacts"] = {}
+        mode = row.pop("mode")
         if not mode:
             continue
-        dest = row.pop('destination')
-        ret[user]['contacts'][mode] = dest
+        dest = row.pop("destination")
+        ret[user]["contacts"][mode] = dest
     data = list(ret.values())
     for event in data:
-        override_number = team_override_numbers.get(event['team'])
-        if override_number and event['role'] == 'primary':
-            event['contacts']['call'] = override_number
-            event['contacts']['sms'] = override_number
+        override_number = team_override_numbers.get(event["team"])
+        if override_number and event["role"] == "primary":
+            event["contacts"]["call"] = override_number
+            event["contacts"]["sms"] = override_number
 
     cursor.close()
     connection.close()

@@ -2,17 +2,18 @@
 # See LICENSE in the project root for license information.
 
 from ujson import dumps as json_dumps
+
 from ... import db
 
 columns = {
-    'id': '`notification`.`id` = %s',
-    'event_id': '`notification`.`event_id` = %s',
-    'active': '`notification`.`active` = %s'
+    "id": "`notification`.`id` = %s",
+    "event_id": "`notification`.`event_id` = %s",
+    "active": "`notification`.`active` = %s",
 }
 
 
 def on_get(req, resp):
-    query = 'SELECT * FROM `notification`'
+    query = "SELECT * FROM `notification`"
     where = []
     where_vals = []
     for col in req.params:
@@ -20,7 +21,7 @@ def on_get(req, resp):
             where.append(columns[col])
             where_vals.append(req.get_param(col))
     if where:
-        query += 'WHERE %s' % ', '.join(where)
+        query += "WHERE %s" % ", ".join(where)
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
     cursor.execute(query, where_vals)

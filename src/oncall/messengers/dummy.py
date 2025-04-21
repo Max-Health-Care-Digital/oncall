@@ -1,7 +1,8 @@
-from oncall.constants import EMAIL_SUPPORT, SMS_SUPPORT, CALL_SUPPORT
 import logging
 
-logger = logging.getLogger('dummy_messenger')
+from oncall.constants import CALL_SUPPORT, EMAIL_SUPPORT, SMS_SUPPORT
+
+logger = logging.getLogger("dummy_messenger")
 
 
 class dummy(object):
@@ -11,4 +12,4 @@ class dummy(object):
         pass
 
     def send(self, message):
-        logger.info('sent message %s' % message)
+        logger.info("sent message %s" % message)

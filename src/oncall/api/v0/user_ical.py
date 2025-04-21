@@ -2,30 +2,33 @@
 # See LICENSE in the project root for license information.
 
 import time
+
+from ... import db
 from . import ical
 from .roles import get_role_ids
 from .teams import get_team_ids
-from ... import db
 
 
 def get_user_events(user_name, start, roles=None, excluded_teams=None):
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
 
-    role_condition = ''
+    role_condition = ""
     role_ids = get_role_ids(cursor, roles)
     if role_ids:
-        role_condition = ' AND `event`.`role_id` IN ({0})'.format(
-            ','.join(map(str, role_ids)))
-
-    excluded_teams_condition = ''
-    excluded_team_ids = get_team_ids(cursor, excluded_teams)
-    if excluded_team_ids:
-        excluded_teams_condition = ' AND `event`.`team_id` NOT IN ({0})'.format(
-            ','.join(map(str, excluded_team_ids))
+        role_condition = " AND `event`.`role_id` IN ({0})".format(
+            ",".join(map(str, role_ids))
         )
 
-    query = '''
+    excluded_teams_condition = ""
+    excluded_team_ids = get_team_ids(cursor, excluded_teams)
+    if excluded_team_ids:
+        excluded_teams_condition = " AND `event`.`team_id` NOT IN ({0})".format(
+            ",".join(map(str, excluded_team_ids))
+        )
+
+    query = (
+        """
         SELECT
             `event`.`id`,
             `team`.`name` AS team,
@@ -40,7 +43,10 @@ def get_user_events(user_name, start, roles=None, excluded_teams=None):
         WHERE
             `event`.`end` > %s AND
             `user`.`name` = %s
-        ''' + role_condition + excluded_teams_condition
+        """
+        + role_condition
+        + excluded_teams_condition
+    )
 
     cursor.execute(query, (start, user_name))
 
@@ -67,15 +73,17 @@ def on_get(req, resp, user_name):
         ...
 
     """
-    start = req.get_param_as_int('start')
+    start = req.get_param_as_int("start")
     if start is None:
         start = int(time.time())
-    contact = req.get_param_as_bool('contact')
+    contact = req.get_param_as_bool("contact")
     if contact is None:
         contact = True
-    roles = req.get_param_as_list('roles')
-    excluded_teams = req.get_param_as_list('excludedTeams')
+    roles = req.get_param_as_list("roles")
+    excluded_teams = req.get_param_as_list("excludedTeams")
 
-    events = get_user_events(user_name, start, roles=roles, excluded_teams=excluded_teams)
+    events = get_user_events(
+        user_name, start, roles=roles, excluded_teams=excluded_teams
+    )
     resp.body = ical.events_to_ical(events, user_name, contact)
-    resp.set_header('Content-Type', 'text/calendar')
+    resp.set_header("Content-Type", "text/calendar")

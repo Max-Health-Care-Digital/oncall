@@ -13,8 +13,9 @@ def init(config):
     global DictCursor
     global IntegrityError
 
-    engine = create_engine(config['conn']['str'] % config['conn']['kwargs'],
-                           **config['kwargs'])
+    engine = create_engine(
+        config["conn"]["str"] % config["conn"]["kwargs"], **config["kwargs"]
+    )
     dbapi = engine.dialect.dbapi
     IntegrityError = dbapi.IntegrityError
 

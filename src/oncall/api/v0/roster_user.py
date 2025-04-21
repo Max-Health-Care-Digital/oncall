@@ -2,12 +2,13 @@
 # See LICENSE in the project root for license information.
 
 from urllib.parse import unquote
-from falcon import HTTPNotFound, HTTPBadRequest, HTTP_200
 
-from ...auth import login_required, check_team_auth
-from ...utils import load_json_body, unsubscribe_notifications, create_audit
+from falcon import HTTP_200, HTTPBadRequest, HTTPNotFound
+
 from ... import db
+from ...auth import check_team_auth, login_required
 from ...constants import ROSTER_USER_DELETED, ROSTER_USER_EDITED
+from ...utils import create_audit, load_json_body, unsubscribe_notifications
 
 
 @login_required
@@ -37,26 +38,34 @@ def on_delete(req, resp, team, roster, user):
     check_team_auth(team, req)
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('''SELECT `id` FROM `roster`
+    cursor.execute(
+        """SELECT `id` FROM `roster`
                       WHERE `team_id` = (SELECT `id` FROM `team` WHERE name = %s)
-                      AND `name` = %s''',
-                   (team, roster))
+                      AND `name` = %s""",
+        (team, roster),
+    )
     roster_id = cursor.fetchone()
     if roster_id is None:
         raise HTTPNotFound()
-    cursor.execute('''DELETE FROM `roster_user`
+    cursor.execute(
+        """DELETE FROM `roster_user`
                       WHERE `roster_id`= %s
-                      AND `user_id`=(SELECT `id` FROM `user` WHERE `name`=%s)''',
-                   (roster_id, user))
-    cursor.execute('''DELETE `schedule_order` FROM `schedule_order`
+                      AND `user_id`=(SELECT `id` FROM `user` WHERE `name`=%s)""",
+        (roster_id, user),
+    )
+    cursor.execute(
+        """DELETE `schedule_order` FROM `schedule_order`
                       JOIN `schedule` ON `schedule`.`id` = `schedule_order`.`schedule_id`
                       WHERE `roster_id` = %s
-                      AND user_id = (SELECT `id` FROM `user` WHERE `name` = %s)''',
-                   (roster_id, user))
-    create_audit({'roster': roster, 'user': user}, team, ROSTER_USER_DELETED, req, cursor)
+                      AND user_id = (SELECT `id` FROM `user` WHERE `name` = %s)""",
+        (roster_id, user),
+    )
+    create_audit(
+        {"roster": roster, "user": user}, team, ROSTER_USER_DELETED, req, cursor
+    )
 
     # Remove user from the team if needed
-    query = '''DELETE FROM `team_user`
+    query = """DELETE FROM `team_user`
         WHERE `user_id` = (SELECT `id` FROM `user` WHERE `name`=%s)
             AND `user_id` NOT IN (
                 SELECT `roster_user`.`user_id`
@@ -67,7 +76,7 @@ def on_delete(req, resp, team, roster, user):
                     WHERE `team_id` = (SELECT `id` FROM `team` WHERE `name`=%s)
                 )
             )
-            AND `team_user`.`team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)'''
+            AND `team_user`.`team_id` = (SELECT `id` FROM `team` WHERE `name` = %s)"""
     cursor.execute(query, (user, team, team, team))
     if cursor.rowcount != 0:
         unsubscribe_notifications(team, user, cursor)
@@ -75,7 +84,7 @@ def on_delete(req, resp, team, roster, user):
     cursor.close()
     connection.close()
     resp.status = HTTP_200
-    resp.body = '[]'
+    resp.body = "[]"
 
 
 @login_required
@@ -108,26 +117,30 @@ def on_put(req, resp, team, roster, user):
     check_team_auth(team, req)
     data = load_json_body(req)
 
-    in_rotation = data.get('in_rotation')
+    in_rotation = data.get("in_rotation")
     if in_rotation is None:
-        raise HTTPBadRequest('incomplete data', 'missing field "in_rotation"')
+        raise HTTPBadRequest("incomplete data", 'missing field "in_rotation"')
     in_rotation = int(in_rotation)
     connection = db.connect()
     cursor = connection.cursor()
 
-    cursor.execute('''UPDATE `roster_user` SET `in_rotation`=%s
+    cursor.execute(
+        """UPDATE `roster_user` SET `in_rotation`=%s
                       WHERE `user_id` = (SELECT `id` FROM `user` WHERE `name`=%s)
                       AND `roster_id` =
                         (SELECT `id` FROM `roster` WHERE `name`=%s
-                         AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s))''',
-                   (in_rotation, user, roster, team))
-    create_audit({'user': user, 'roster': roster, 'request_body': data},
-                 team,
-                 ROSTER_USER_EDITED,
-                 req,
-                 cursor)
+                         AND `team_id` = (SELECT `id` FROM `team` WHERE `name` = %s))""",
+        (in_rotation, user, roster, team),
+    )
+    create_audit(
+        {"user": user, "roster": roster, "request_body": data},
+        team,
+        ROSTER_USER_EDITED,
+        req,
+        cursor,
+    )
     connection.commit()
     cursor.close()
     connection.close()
     resp.status = HTTP_200
-    resp.body = '[]'
+    resp.body = "[]"

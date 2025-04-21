@@ -18,12 +18,13 @@ def check_ical_team(team, requester):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         SELECT `id`
         FROM `team`
         WHERE `name` = %s AND `active` = TRUE
-        ''',
-        (team, ))
+        """,
+        (team,),
+    )
     team_exist_and_active = cursor.rowcount
 
     cursor.close()
@@ -36,12 +37,13 @@ def check_ical_key_requester(key, requester):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         SELECT `key`
         FROM `ical_key`
         WHERE `key` = %s AND `requester` = %s
-        ''',
-        (key, requester))
+        """,
+        (key, requester),
+    )
     is_requester = cursor.rowcount
 
     cursor.close()
@@ -55,12 +57,13 @@ def get_name_and_type_from_key(key):
 
     result = None
     cursor.execute(
-        '''
+        """
         SELECT `name`, `type`
         FROM `ical_key`
         WHERE `key` = %s
-        ''',
-        (key, ))
+        """,
+        (key,),
+    )
     if cursor.rowcount != 0:
         row = cursor.fetchone()
         result = (row[0], row[1])
@@ -75,15 +78,16 @@ def get_ical_key(requester, name, type):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         SELECT `key`
         FROM `ical_key`
         WHERE
             `requester` = %s AND
             `name` = %s AND
             `type` = %s
-        ''',
-        (requester, name, type))
+        """,
+        (requester, name, type),
+    )
     if cursor.rowcount == 0:
         key = None
     else:
@@ -99,12 +103,13 @@ def update_ical_key(requester, name, type, key):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         INSERT INTO `ical_key` (`key`, `requester`, `name`, `type`, `time_created`)
         VALUES (%s, %s, %s, %s, UNIX_TIMESTAMP())
         ON DUPLICATE KEY UPDATE `key` = %s, `time_created` = UNIX_TIMESTAMP()
-        ''',
-        (key, requester, name, type, key))
+        """,
+        (key, requester, name, type, key),
+    )
     connection.commit()
 
     cursor.close()
@@ -116,14 +121,15 @@ def delete_ical_key(requester, name, type):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         DELETE FROM `ical_key`
         WHERE
             `requester` = %s AND
             `name` = %s AND
             `type` = %s
-        ''',
-        (requester, name, type))
+        """,
+        (requester, name, type),
+    )
     connection.commit()
 
     cursor.close()
@@ -135,12 +141,13 @@ def get_ical_key_detail(key):
     cursor = connection.cursor(db.DictCursor)
 
     cursor.execute(
-        '''
+        """
         SELECT `requester`, `name`, `type`, `time_created`
         FROM `ical_key`
         WHERE `key` = %s
-        ''',
-        (key, ))
+        """,
+        (key,),
+    )
     # fetchall because we may want to know if there is any key (uuid) collision
     results = cursor.fetchall()
 
@@ -154,12 +161,13 @@ def get_ical_key_detail_by_requester(requester):
     cursor = connection.cursor(db.DictCursor)
 
     cursor.execute(
-        '''
+        """
         SELECT `key`, `name`, `type`, `time_created`
         FROM `ical_key`
         WHERE `requester` = %s
-        ''',
-        (requester, ))
+        """,
+        (requester,),
+    )
     results = cursor.fetchall()
 
     cursor.close()
@@ -172,12 +180,13 @@ def invalidate_ical_key(key):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         DELETE FROM `ical_key`
         WHERE
             `key` = %s
-        ''',
-        (key, ))
+        """,
+        (key,),
+    )
     connection.commit()
 
     cursor.close()
@@ -189,12 +198,13 @@ def invalidate_ical_key_by_requester(requester):
     cursor = connection.cursor()
 
     cursor.execute(
-        '''
+        """
         DELETE FROM `ical_key`
         WHERE
             `requester` = %s
-        ''',
-        (requester, ))
+        """,
+        (requester,),
+    )
     connection.commit()
 
     cursor.close()

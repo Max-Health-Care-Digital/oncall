@@ -8,6 +8,6 @@ class Authenticator(object):
 
     def authenticate(self, request):
         # DUMMY SSO AUTHENTICATION FOR TEST USE ONLY, DO NOT USE IN PRODUCTION! Replace with your own SSO authentication module.
-        if 'SSO-DEBUG-HEADER' in request.headers:
-            return request.headers.get('SSO-DEBUG-HEADER')
+        if "SSO-DEBUG-HEADER" in request.headers:
+            return request.headers.get("SSO-DEBUG-HEADER")
         return None

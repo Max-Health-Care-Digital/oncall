@@ -1,15 +1,15 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTPNotFound, HTTPBadRequest, HTTP_201
+from falcon import HTTP_201, HTTPBadRequest, HTTPNotFound
 
 from ...auth import login_required
 from .ical_key import (
-    get_ical_key,
-    update_ical_key,
+    check_ical_team,
     delete_ical_key,
     generate_ical_key,
-    check_ical_team,
+    get_ical_key,
+    update_ical_key,
 )
 
 
@@ -28,14 +28,14 @@ def on_get(req, resp, team):
         ef895425-5f49-11ea-8eee-10e7c6352aff
 
     """
-    challenger = req.context['user']
+    challenger = req.context["user"]
 
-    key = get_ical_key(challenger, team, 'team')
+    key = get_ical_key(challenger, team, "team")
     if key is None:
         raise HTTPNotFound()
 
     resp.body = key
-    resp.set_header('Content-Type', 'text/plain')
+    resp.set_header("Content-Type", "text/plain")
 
 
 @login_required
@@ -44,19 +44,19 @@ def on_post(req, resp, team):
     oncall calendar for the logged-in user.
 
     """
-    challenger = req.context['user']
+    challenger = req.context["user"]
     if not check_ical_team(team, challenger):
         raise HTTPBadRequest(
-            'Invalid team name',
+            "Invalid team name",
             'Team "%s" does not exist or is inactive' % team,
         )
 
     key = generate_ical_key()
-    update_ical_key(challenger, team, 'team', key)
+    update_ical_key(challenger, team, "team", key)
 
     resp.status = HTTP_201
     resp.body = key
-    resp.set_header('Content-Type', 'text/plain')
+    resp.set_header("Content-Type", "text/plain")
 
 
 @login_required
@@ -65,6 +65,6 @@ def on_delete(req, resp, team):
     calendar for the logged-in user.
 
     """
-    challenger = req.context['user']
+    challenger = req.context["user"]
 
-    delete_ical_key(challenger, team, 'team')
+    delete_ical_key(challenger, team, "team")

@@ -1,5 +1,7 @@
-import pymsteams
 import logging
+
+import pymsteams
+
 from oncall.constants import TEAMS_SUPPORT
 
 
@@ -7,11 +9,13 @@ class teams_messenger(object):
     supports = frozenset([TEAMS_SUPPORT])
 
     def __init__(self, config):
-        self.webhook = config['webhook']
+        self.webhook = config["webhook"]
 
     def send(self, message):
         heading = message.get("subject")
-        final_message = "User: " + message.get("user") + " Message: " + message.get("body")
+        final_message = (
+            "User: " + message.get("user") + " Message: " + message.get("body")
+        )
 
         try:
             myTeamsMessage = pymsteams.connectorcard(self.webhook)
@@ -19,4 +23,6 @@ class teams_messenger(object):
             myTeamsMessage.text(str(final_message))
             myTeamsMessage.send()
         except:
-            logging.info("An issue occured while sending message to teams messenger")
+            logging.info(
+                "An issue occured while sending message to teams messenger"
+            )

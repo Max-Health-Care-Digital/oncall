@@ -2,28 +2,30 @@
 # See LICENSE in the project root for license information.
 
 from urllib.parse import unquote
-from falcon import HTTPError, HTTP_201, HTTPBadRequest
+
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
-from ...utils import load_json_body, invalid_char_reg, create_audit
-from ...constants import ROSTER_CREATED
-from ...auth import login_required, check_team_auth
+
 from ... import db
+from ...auth import check_team_auth, login_required
+from ...constants import ROSTER_CREATED
+from ...utils import create_audit, invalid_char_reg, load_json_body
 from .schedules import get_schedules
 
 constraints = {
-    'name': '`roster`.`name` = %s',
-    'name__eq': '`roster`.`name` = %s',
-    'name__contains': '`roster`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'name__startswith': '`roster`.`name` LIKE CONCAT(%s, "%%")',
-    'name__endswith': '`roster`.`name` LIKE CONCAT("%%", %s)',
-    'id': '`roster`.`id` = %s',
-    'id__eq': '`roster`.`id` = %s',
+    "name": "`roster`.`name` = %s",
+    "name__eq": "`roster`.`name` = %s",
+    "name__contains": '`roster`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "name__startswith": '`roster`.`name` LIKE CONCAT(%s, "%%")',
+    "name__endswith": '`roster`.`name` LIKE CONCAT("%%", %s)',
+    "id": "`roster`.`id` = %s",
+    "id__eq": "`roster`.`id` = %s",
 }
 
 
 def get_roster_by_team_id(cursor, team_id, params=None):
     # get all rosters for a team
-    query = 'SELECT `id`, `name` from `roster`'
+    query = "SELECT `id`, `name` from `roster`"
     where_params = []
     where_vals = []
     if params:
@@ -31,29 +33,32 @@ def get_roster_by_team_id(cursor, team_id, params=None):
             if key in constraints:
                 where_params.append(constraints[key])
                 where_vals.append(val)
-    where_params.append('`roster`.`team_id`= %s')
+    where_params.append("`roster`.`team_id`= %s")
     where_vals.append(team_id)
-    where_clause = ' WHERE %s' % ' AND '.join(where_params)
+    where_clause = " WHERE %s" % " AND ".join(where_params)
 
     cursor.execute(query + where_clause, where_vals)
-    rosters = dict((row['name'], {'users': [], 'schedules': [], 'id': row['id']})
-                   for row in cursor)
+    rosters = dict(
+        (row["name"], {"users": [], "schedules": [], "id": row["id"]})
+        for row in cursor
+    )
     # get users for each roster
-    query = '''SELECT `roster`.`name` AS `roster`,
+    query = """SELECT `roster`.`name` AS `roster`,
                       `user`.`name` AS `user`,
                       `roster_user`.`in_rotation` AS `in_rotation`
                FROM `roster_user`
                JOIN `roster` ON `roster_user`.`roster_id`=`roster`.`id`
-               JOIN `user` ON `roster_user`.`user_id`=`user`.`id`'''
+               JOIN `user` ON `roster_user`.`user_id`=`user`.`id`"""
     cursor.execute(query + where_clause, where_vals)
     for row in cursor:
-        rosters[row['roster']]['users'].append(
-            {'name': row['user'], 'in_rotation': bool(row['in_rotation'])})
+        rosters[row["roster"]]["users"].append(
+            {"name": row["user"], "in_rotation": bool(row["in_rotation"])}
+        )
     # get all schedules for a team
-    data = get_schedules({'team_id': team_id})
+    data = get_schedules({"team_id": team_id})
     for schedule in data:
-        if schedule['roster'] in rosters:
-            rosters[schedule['roster']]['schedules'].append(schedule)
+        if schedule["roster"] in rosters:
+            rosters[schedule["roster"]]["schedules"].append(schedule)
 
     return rosters
 
@@ -122,13 +127,15 @@ def on_get(req, resp, team):
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
 
-    cursor.execute('SELECT `id` FROM `team` WHERE `name`=%s', team)
+    cursor.execute("SELECT `id` FROM `team` WHERE `name`=%s", team)
     if cursor.rowcount != 1:
-        raise HTTPError('422 Unprocessable Entity',
-                        'IntegrityError',
-                        'team "%s" not found' % team)
+        raise HTTPError(
+            "422 Unprocessable Entity",
+            "IntegrityError",
+            'team "%s" not found' % team,
+        )
 
-    team_id = cursor.fetchone()['id']
+    team_id = cursor.fetchone()["id"]
     rosters = get_roster_by_team_id(cursor, team_id, req.params)
 
     cursor.close()
@@ -166,27 +173,40 @@ def on_post(req, resp, team):
     team = unquote(team)
     data = load_json_body(req)
 
-    roster_name = data.get('name')
+    roster_name = data.get("name")
     if not roster_name:
-        raise HTTPBadRequest('name attribute missing from request', '')
+        raise HTTPBadRequest("name attribute missing from request", "")
     invalid_char = invalid_char_reg.search(roster_name)
     if invalid_char:
-        raise HTTPBadRequest('invalid roster name',
-                             'roster name contains invalid character "%s"' % invalid_char.group())
+        raise HTTPBadRequest(
+            "invalid roster name",
+            'roster name contains invalid character "%s"'
+            % invalid_char.group(),
+        )
 
     check_team_auth(team, req)
 
     connection = db.connect()
     cursor = connection.cursor()
     try:
-        cursor.execute('''INSERT INTO `roster` (`name`, `team_id`)
-                          VALUES (%s, (SELECT `id` FROM `team` WHERE `name`=%s))''',
-                       (roster_name, team))
+        cursor.execute(
+            """INSERT INTO `roster` (`name`, `team_id`)
+                          VALUES (%s, (SELECT `id` FROM `team` WHERE `name`=%s))""",
+            (roster_name, team),
+        )
     except db.IntegrityError:
-        raise HTTPError('422 Unprocessable Entity',
-                        'IntegrityError',
-                        'roster name "%s" already exists for team %s' % (roster_name, team))
-    create_audit({'roster_id': cursor.lastrowid, 'request_body': data}, team, ROSTER_CREATED, req, cursor)
+        raise HTTPError(
+            "422 Unprocessable Entity",
+            "IntegrityError",
+            'roster name "%s" already exists for team %s' % (roster_name, team),
+        )
+    create_audit(
+        {"roster_id": cursor.lastrowid, "request_body": data},
+        team,
+        ROSTER_CREATED,
+        req,
+        cursor,
+    )
     connection.commit()
     cursor.close()
     connection.close()

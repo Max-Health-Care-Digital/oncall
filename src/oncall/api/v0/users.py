@@ -1,50 +1,53 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTPError, HTTPBadRequest, HTTP_201
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
-from ... import db
-from ... import auth
+
+from ... import auth, db
 from ...utils import load_json_body
 
-
-JOIN_CONTACT_TABLES = (' LEFT JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`'
-                       ' LEFT JOIN `contact_mode` ON `user_contact`.`mode_id` = `contact_mode`.`id`')
+JOIN_CONTACT_TABLES = (
+    " LEFT JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`"
+    " LEFT JOIN `contact_mode` ON `user_contact`.`mode_id` = `contact_mode`.`id`"
+)
 
 columns = {
-    'id': '`user`.`id` as `id`',
-    'name': '`user`.`name` as `name`',
-    'full_name': '`user`.`full_name` as `full_name`',
-    'time_zone': '`user`.`time_zone` as `time_zone`',
-    'photo_url': '`user`.`photo_url` as `photo_url`',
-    'contacts': ('`contact_mode`.`name` AS `mode`, '
-                 '`user_contact`.`destination` AS `destination`, '
-                 '`user`.`id` AS `contact_id`'),
-    'active': '`user`.`active` as `active`',
-    'god': '`user`.`god` as `god`',
+    "id": "`user`.`id` as `id`",
+    "name": "`user`.`name` as `name`",
+    "full_name": "`user`.`full_name` as `full_name`",
+    "time_zone": "`user`.`time_zone` as `time_zone`",
+    "photo_url": "`user`.`photo_url` as `photo_url`",
+    "contacts": (
+        "`contact_mode`.`name` AS `mode`, "
+        "`user_contact`.`destination` AS `destination`, "
+        "`user`.`id` AS `contact_id`"
+    ),
+    "active": "`user`.`active` as `active`",
+    "god": "`user`.`god` as `god`",
 }
 
-all_columns = ', '.join(columns.values())
+all_columns = ", ".join(columns.values())
 
 constraints = {
-    'id': '`user`.`id` = %s',
-    'id__eq': '`user`.`id` = %s',
-    'id__ne': '`user`.`id` != %s',
-    'id__lt': '`user`.`id` < %s',
-    'id__le': '`user`.`id` <= %s',
-    'id__gt': '`user`.`id` > %s',
-    'id__ge': '`user`.`id` >= %s',
-    'name': '`user`.`name` = %s',
-    'name__eq': '`user`.`name` = %s',
-    'name__contains': '`user`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'name__startswith': '`user`.`name` LIKE CONCAT(%s, "%%")',
-    'name__endswith': '`user`.`name` LIKE CONCAT("%%", %s)',
-    'full_name': '`user`.`full_name` = %s',
-    'full_name__eq': '`user`.`full_name` = %s',
-    'full_name__contains': '`user`.`full_name` LIKE CONCAT("%%", %s, "%%")',
-    'full_name__startswith': '`user`.`full_name` LIKE CONCAT(%s, "%%")',
-    'full_name__endswith': '`user`.`full_name` LIKE CONCAT("%%", %s)',
-    'active': '`user`.`active` = %s'
+    "id": "`user`.`id` = %s",
+    "id__eq": "`user`.`id` = %s",
+    "id__ne": "`user`.`id` != %s",
+    "id__lt": "`user`.`id` < %s",
+    "id__le": "`user`.`id` <= %s",
+    "id__gt": "`user`.`id` > %s",
+    "id__ge": "`user`.`id` >= %s",
+    "name": "`user`.`name` = %s",
+    "name__eq": "`user`.`name` = %s",
+    "name__contains": '`user`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "name__startswith": '`user`.`name` LIKE CONCAT(%s, "%%")',
+    "name__endswith": '`user`.`name` LIKE CONCAT("%%", %s)',
+    "full_name": "`user`.`full_name` = %s",
+    "full_name__eq": "`user`.`full_name` = %s",
+    "full_name__contains": '`user`.`full_name` LIKE CONCAT("%%", %s, "%%")',
+    "full_name__startswith": '`user`.`full_name` LIKE CONCAT(%s, "%%")',
+    "full_name__endswith": '`user`.`full_name` LIKE CONCAT("%%", %s)',
+    "active": "`user`.`active` = %s",
 }
 
 
@@ -53,18 +56,18 @@ def get_user_data(fields, filter_params, dbinfo=None):
     Get user data for a request
     """
     contacts = False
-    from_clause = '`user`'
+    from_clause = "`user`"
 
     if fields:
-        if 'contacts' in fields:
+        if "contacts" in fields:
             from_clause += JOIN_CONTACT_TABLES
             contacts = True
 
         if any(f not in columns for f in fields):
-            raise HTTPBadRequest('Bad fields', 'One or more invalid fields')
+            raise HTTPBadRequest("Bad fields", "One or more invalid fields")
 
         fields = map(columns.__getitem__, fields)
-        cols = ', '.join(fields)
+        cols = ", ".join(fields)
     else:
         from_clause += JOIN_CONTACT_TABLES
         cols = all_columns
@@ -78,12 +81,14 @@ def get_user_data(fields, filter_params, dbinfo=None):
     else:
         connection, cursor = dbinfo
 
-    where = ' AND '.join(constraints[key] % connection.escape(value)
-                         for key, value in filter_params.items()
-                         if key in constraints)
-    query = 'SELECT %s FROM %s' % (cols, from_clause)
+    where = " AND ".join(
+        constraints[key] % connection.escape(value)
+        for key, value in filter_params.items()
+        if key in constraints
+    )
+    query = "SELECT %s FROM %s" % (cols, from_clause)
     if where:
-        query = '%s WHERE %s' % (query, where)
+        query = "%s WHERE %s" % (query, where)
 
     cursor.execute(query)
     data = cursor.fetchall()
@@ -96,16 +101,16 @@ def get_user_data(fields, filter_params, dbinfo=None):
         # end result accumulator
         ret = {}
         for row in data:
-            user_id = row.pop('contact_id')
+            user_id = row.pop("contact_id")
             # add data row into accumulator only if not already there
             if user_id not in ret:
                 ret[user_id] = row
-                ret[user_id]['contacts'] = {}
-            mode = row.pop('mode')
+                ret[user_id]["contacts"] = {}
+            mode = row.pop("mode")
             if not mode:
                 continue
-            dest = row.pop('destination')
-            ret[user_id]['contacts'][mode] = dest
+            dest = row.pop("destination")
+            ret[user_id]["contacts"][mode] = dest
         data = list(ret.values())
     return data
 
@@ -166,7 +171,9 @@ def on_get(req, resp):
         ]
 
     """
-    resp.body = json_dumps(get_user_data(req.get_param_as_list('fields'), req.params))
+    resp.body = json_dumps(
+        get_user_data(req.get_param_as_list("fields"), req.params)
+    )
 
 
 @auth.debug_only
@@ -178,12 +185,14 @@ def on_post(req, resp):
     connection = db.connect()
     cursor = connection.cursor()
     try:
-        cursor.execute('INSERT INTO `user` (`name`) VALUES (%(name)s)', data)
+        cursor.execute("INSERT INTO `user` (`name`) VALUES (%(name)s)", data)
         connection.commit()
     except db.IntegrityError:
-        raise HTTPError('422 Unprocessable Entity',
-                        'IntegrityError',
-                        'user name "%(name)s" already exists' % data)
+        raise HTTPError(
+            "422 Unprocessable Entity",
+            "IntegrityError",
+            'user name "%(name)s" already exists' % data,
+        )
     finally:
         cursor.close()
         connection.close()

@@ -2,12 +2,13 @@
 # See LICENSE in the project root for license information.
 
 from urllib.parse import unquote
-from falcon import HTTP_201, HTTPError, HTTPBadRequest
+
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
 
-from ...utils import load_json_body
-from ...auth import login_required, check_team_auth
 from ... import db
+from ...auth import check_team_auth, login_required
+from ...utils import load_json_body
 
 HOUR = 60 * 60
 WEEK = 24 * HOUR * 7
@@ -15,59 +16,61 @@ simple_ev_lengths = set([WEEK, 2 * WEEK])
 simple_12hr_num_events = set([7, 14])
 
 columns = {
-    'id': '`schedule`.`id` as `id`',
-    'roster': '`roster`.`name` as `roster`, `roster`.`id` AS `roster_id`',
-    'auto_populate_threshold': '`schedule`.`auto_populate_threshold` as `auto_populate_threshold`',
-    'role': '`role`.`name` as `role`, `role`.`id` AS `role_id`',
-    'team': '`team`.`name` as `team`, `team`.`id` AS `team_id`',
-    'events': '`schedule_event`.`start`, `schedule_event`.`duration`, `schedule`.`id` AS `schedule_id`',
-    'advanced_mode': '`schedule`.`advanced_mode` AS `advanced_mode`',
-    'timezone': '`team`.`scheduling_timezone` AS `timezone`',
-    'scheduler': '`scheduler`.`name` AS `scheduler`'
+    "id": "`schedule`.`id` as `id`",
+    "roster": "`roster`.`name` as `roster`, `roster`.`id` AS `roster_id`",
+    "auto_populate_threshold": "`schedule`.`auto_populate_threshold` as `auto_populate_threshold`",
+    "role": "`role`.`name` as `role`, `role`.`id` AS `role_id`",
+    "team": "`team`.`name` as `team`, `team`.`id` AS `team_id`",
+    "events": "`schedule_event`.`start`, `schedule_event`.`duration`, `schedule`.`id` AS `schedule_id`",
+    "advanced_mode": "`schedule`.`advanced_mode` AS `advanced_mode`",
+    "timezone": "`team`.`scheduling_timezone` AS `timezone`",
+    "scheduler": "`scheduler`.`name` AS `scheduler`",
 }
 
 all_columns = list(columns.keys())
 
 constraints = {
-    'id': '`schedule`.`id` = %s',
-    'id__eq': '`schedule`.`id` = %s',
-    'id__ge': '`schedule`.`id` >= %s',
-    'id__gt': '`schedule`.`id` > %s',
-    'id__le': '`schedule`.`id` <= %s',
-    'id__lt': '`schedule`.`id` < %s',
-    'id__ne': '`schedule`.`id` != %s',
-    'name': '`roster`.`name` = %s',
-    'name__contains': '`roster`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'name__endswith': '`roster`.`name` LIKE CONCAT("%%", %s)',
-    'name__eq': '`roster`.`name` = %s',
-    'name__startswith': '`roster`.`name` LIKE CONCAT(%s, "%%")',
-    'role': '`role`.`name` = %s',
-    'role__contains': '`role`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'role__endswith': '`role`.`name` LIKE CONCAT("%%", %s)',
-    'role__eq': '`role`.`name` = %s',
-    'role__startswith': '`role`.`name` LIKE CONCAT(%s, "%%")',
-    'team': '`team`.`name` = %s',
-    'team__contains': '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'team__endswith': '`team`.`name` LIKE CONCAT("%%", %s)',
-    'team__eq': '`team`.`name` = %s',
-    'team__startswith': '`team`.`name` LIKE CONCAT(%s, "%%")',
-    'team_id': '`schedule`.`team_id` = %s',
-    'roster_id': '`schedule`.`roster_id` = %s'
+    "id": "`schedule`.`id` = %s",
+    "id__eq": "`schedule`.`id` = %s",
+    "id__ge": "`schedule`.`id` >= %s",
+    "id__gt": "`schedule`.`id` > %s",
+    "id__le": "`schedule`.`id` <= %s",
+    "id__lt": "`schedule`.`id` < %s",
+    "id__ne": "`schedule`.`id` != %s",
+    "name": "`roster`.`name` = %s",
+    "name__contains": '`roster`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "name__endswith": '`roster`.`name` LIKE CONCAT("%%", %s)',
+    "name__eq": "`roster`.`name` = %s",
+    "name__startswith": '`roster`.`name` LIKE CONCAT(%s, "%%")',
+    "role": "`role`.`name` = %s",
+    "role__contains": '`role`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "role__endswith": '`role`.`name` LIKE CONCAT("%%", %s)',
+    "role__eq": "`role`.`name` = %s",
+    "role__startswith": '`role`.`name` LIKE CONCAT(%s, "%%")',
+    "team": "`team`.`name` = %s",
+    "team__contains": '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "team__endswith": '`team`.`name` LIKE CONCAT("%%", %s)',
+    "team__eq": "`team`.`name` = %s",
+    "team__startswith": '`team`.`name` LIKE CONCAT(%s, "%%")',
+    "team_id": "`schedule`.`team_id` = %s",
+    "roster_id": "`schedule`.`roster_id` = %s",
 }
 
 
 def validate_simple_schedule(events):
-    '''
+    """
     Return boolean whether a schedule can be represented in simple mode. Simple schedules can have:
     1. One event that is one week long
     2. One event that is two weeks long
     3. Seven events that are 12 hours long
     4. Fourteen events that are 12 hours long
-    '''
-    if len(events) == 1 and events[0]['duration'] in simple_ev_lengths:
+    """
+    if len(events) == 1 and events[0]["duration"] in simple_ev_lengths:
         return True
     else:
-        return len(events) in simple_12hr_num_events and all([ev['duration'] == 12 * HOUR for ev in events])
+        return len(events) in simple_12hr_num_events and all(
+            [ev["duration"] == 12 * HOUR for ev in events]
+        )
 
 
 def get_schedules(filter_params, dbinfo=None, fields=None):
@@ -85,30 +88,36 @@ def get_schedules(filter_params, dbinfo=None, fields=None):
     """
     events = False
     scheduler = False
-    from_clause = ['`schedule`']
+    from_clause = ["`schedule`"]
 
     if fields is None:
         fields = list(columns.keys())
     if any(f not in columns for f in fields):
-        raise HTTPBadRequest('Bad fields', 'One or more invalid fields')
-    if 'roster' in fields:
-        from_clause.append('JOIN `roster` ON `roster`.`id` = `schedule`.`roster_id`')
-    if 'team' in fields or 'timezone' in fields:
-        from_clause.append('JOIN `team` ON `team`.`id` = `schedule`.`team_id`')
-    if 'role' in fields:
-        from_clause.append('JOIN `role` ON `role`.`id` = `schedule`.`role_id`')
-    if 'scheduler' in fields:
-        from_clause.append('JOIN `scheduler` ON `scheduler`.`id` = `schedule`.`scheduler_id`')
+        raise HTTPBadRequest("Bad fields", "One or more invalid fields")
+    if "roster" in fields:
+        from_clause.append(
+            "JOIN `roster` ON `roster`.`id` = `schedule`.`roster_id`"
+        )
+    if "team" in fields or "timezone" in fields:
+        from_clause.append("JOIN `team` ON `team`.`id` = `schedule`.`team_id`")
+    if "role" in fields:
+        from_clause.append("JOIN `role` ON `role`.`id` = `schedule`.`role_id`")
+    if "scheduler" in fields:
+        from_clause.append(
+            "JOIN `scheduler` ON `scheduler`.`id` = `schedule`.`scheduler_id`"
+        )
         scheduler = True
-    if 'events' in fields:
-        from_clause.append('LEFT JOIN `schedule_event` ON `schedule_event`.`schedule_id` = `schedule`.`id`')
+    if "events" in fields:
+        from_clause.append(
+            "LEFT JOIN `schedule_event` ON `schedule_event`.`schedule_id` = `schedule`.`id`"
+        )
         events = True
 
-    if 'id' not in fields:
-        fields.append('id')
+    if "id" not in fields:
+        fields.append("id")
     fields = list(map(columns.__getitem__, fields))
-    cols = ', '.join(fields)
-    from_clause = ' '.join(from_clause)
+    cols = ", ".join(fields)
+    from_clause = " ".join(from_clause)
 
     connection_opened = False
     if dbinfo is None:
@@ -118,29 +127,33 @@ def get_schedules(filter_params, dbinfo=None, fields=None):
     else:
         connection, cursor = dbinfo
 
-    where = ' AND '.join(constraints[key] % connection.escape(value)
-                         for key, value in filter_params.items()
-                         if key in constraints)
-    query = 'SELECT %s FROM %s' % (cols, from_clause)
+    where = " AND ".join(
+        constraints[key] % connection.escape(value)
+        for key, value in filter_params.items()
+        if key in constraints
+    )
+    query = "SELECT %s FROM %s" % (cols, from_clause)
     if where:
-        query = '%s WHERE %s' % (query, where)
+        query = "%s WHERE %s" % (query, where)
 
     cursor.execute(query)
     data = cursor.fetchall()
     if scheduler and data:
-        schedule_ids = {d['id'] for d in data}
-        cursor.execute('''SELECT `schedule_id`, `user`.`name` FROM `schedule_order`
+        schedule_ids = {d["id"] for d in data}
+        cursor.execute(
+            """SELECT `schedule_id`, `user`.`name` FROM `schedule_order`
                           JOIN `user` ON `user_id` = `user`.`id`
                           WHERE `schedule_id` IN %s
-                          ORDER BY `schedule_id`,`priority`, `user_id`''',
-                       schedule_ids)
+                          ORDER BY `schedule_id`,`priority`, `user_id`""",
+            schedule_ids,
+        )
         orders = {}
         # Accumulate roster orders for schedule
         for row in cursor:
-            schedule_id = row['schedule_id']
+            schedule_id = row["schedule_id"]
             if schedule_id not in orders:
                 orders[schedule_id] = []
-            orders[schedule_id].append(row['name'])
+            orders[schedule_id].append(row["name"])
     if connection_opened:
         cursor.close()
         connection.close()
@@ -150,22 +163,24 @@ def get_schedules(filter_params, dbinfo=None, fields=None):
         # end result accumulator
         ret = {}
         for row in data:
-            schedule_id = row.pop('schedule_id')
+            schedule_id = row.pop("schedule_id")
             # add data row into accumulator only if not already there
             if schedule_id not in ret:
                 ret[schedule_id] = row
-                ret[schedule_id]['events'] = []
-            start = row.pop('start')
-            duration = row.pop('duration')
-            ret[schedule_id]['events'].append({'start': start, 'duration': duration})
+                ret[schedule_id]["events"] = []
+            start = row.pop("start")
+            duration = row.pop("duration")
+            ret[schedule_id]["events"].append(
+                {"start": start, "duration": duration}
+            )
         data = list(ret.values())
 
     if scheduler:
         for schedule in data:
-            scheduler_data = {'name': schedule['scheduler']}
-            if schedule['id'] in orders:
-                scheduler_data['data'] = orders[schedule['id']]
-            schedule['scheduler'] = scheduler_data
+            scheduler_data = {"name": schedule["scheduler"]}
+            if schedule["id"] in orders:
+                scheduler_data["data"] = orders[schedule["id"]]
+            schedule["scheduler"] = scheduler_data
     return data
 
 
@@ -173,19 +188,23 @@ def insert_schedule_events(schedule_id, events, cursor):
     """
     Helper to insert schedule events for a schedule
     """
-    insert_events = '''INSERT INTO `schedule_event` (`schedule_id`, `start`, `duration`)
-                       VALUES (%(schedule)s, %(start)s, %(duration)s)'''
+    insert_events = """INSERT INTO `schedule_event` (`schedule_id`, `start`, `duration`)
+                       VALUES (%(schedule)s, %(start)s, %(duration)s)"""
     # Merge consecutive events for db storage. This creates an equivalent, simpler
     # form of the schedule for the scheduler.
-    raw_events = sorted(events, key=lambda e: e['start'])
+    raw_events = sorted(events, key=lambda e: e["start"])
     new_events = []
     for e in raw_events:
-        if len(new_events) > 0 and e['start'] == new_events[-1]['start'] + new_events[-1]['duration']:
-            new_events[-1]['duration'] += e['duration']
+        if (
+            len(new_events) > 0
+            and e["start"]
+            == new_events[-1]["start"] + new_events[-1]["duration"]
+        ):
+            new_events[-1]["duration"] += e["duration"]
         else:
             new_events.append(e)
     for e in new_events:
-        e['schedule'] = schedule_id
+        e["schedule"] = schedule_id
     cursor.executemany(insert_events, new_events)
 
 
@@ -257,24 +276,24 @@ def on_get(req, resp, team, roster):
     """
     team = unquote(team)
     roster = unquote(roster)
-    fields = req.get_param_as_list('fields')
+    fields = req.get_param_as_list("fields")
     if not fields:
         fields = all_columns
 
     params = req.params
-    params['team'] = team
-    params['roster'] = roster
+    params["team"] = team
+    params["roster"] = roster
     data = get_schedules(params, fields=fields)
 
     resp.body = json_dumps(data)
 
 
-required_params = frozenset(['events', 'role', 'advanced_mode'])
+required_params = frozenset(["events", "role", "advanced_mode"])
 
 
 @login_required
 def on_post(req, resp, team, roster):
-    '''
+    """
     Schedule create endpoint. Schedules are templates for the auto-scheduler to follow that define
     how it should populate a certain period of time. This template is followed repeatedly to
     populate events on a team's calendar. Schedules are associated with a roster, which defines
@@ -369,42 +388,52 @@ def on_post(req, resp, team, roster):
     :statuscode 201: Successful schedule create. Response contains created schedule's id.
     :statuscode 400: Missing required parameters
     :statuscode 422: Invalid roster specified
-    '''
+    """
     data = load_json_body(req)
-    data['team'] = unquote(team)
-    data['roster'] = unquote(roster)
-    check_team_auth(data['team'], req)
+    data["team"] = unquote(team)
+    data["roster"] = unquote(roster)
+    check_team_auth(data["team"], req)
     missing_params = required_params - set(data.keys())
     if missing_params:
-        raise HTTPBadRequest('invalid schedule',
-                             'missing required parameters: %s' % ', '.join(missing_params))
+        raise HTTPBadRequest(
+            "invalid schedule",
+            "missing required parameters: %s" % ", ".join(missing_params),
+        )
 
-    schedule_events = data.pop('events')
+    schedule_events = data.pop("events")
     for sev in schedule_events:
-        if 'start' not in sev or 'duration' not in sev:
-            raise HTTPBadRequest('invalid schedule',
-                                 'schedule event requires both start and duration fields')
-        if sev.get('start') is None:
-            raise HTTPBadRequest('invalid schedule', 'schedule event start cannot be null')
-        if sev.get('duration') is None or sev['duration'] <= 0:
-            raise HTTPBadRequest('invalid schedule', 'schedule event duration must be positive')
+        if "start" not in sev or "duration" not in sev:
+            raise HTTPBadRequest(
+                "invalid schedule",
+                "schedule event requires both start and duration fields",
+            )
+        if sev.get("start") is None:
+            raise HTTPBadRequest(
+                "invalid schedule", "schedule event start cannot be null"
+            )
+        if sev.get("duration") is None or sev["duration"] <= 0:
+            raise HTTPBadRequest(
+                "invalid schedule", "schedule event duration must be positive"
+            )
 
-    if 'auto_populate_threshold' not in data:
+    if "auto_populate_threshold" not in data:
         # default to autopopulate 3 weeks forward
-        data['auto_populate_threshold'] = 21
+        data["auto_populate_threshold"] = 21
 
-    if 'scheduler' not in data:
+    if "scheduler" not in data:
         # default to "default" scheduling algorithm
-        data['scheduler_name'] = 'default'
+        data["scheduler_name"] = "default"
     else:
-        data['scheduler_name'] = data['scheduler'].get('name', 'default')
-        scheduler_data = data['scheduler'].get('data')
+        data["scheduler_name"] = data["scheduler"].get("name", "default")
+        scheduler_data = data["scheduler"].get("data")
 
-    if not data['advanced_mode']:
+    if not data["advanced_mode"]:
         if not validate_simple_schedule(schedule_events):
-            raise HTTPBadRequest('invalid schedule', 'invalid advanced mode setting')
+            raise HTTPBadRequest(
+                "invalid schedule", "invalid advanced mode setting"
+            )
 
-    insert_schedule = '''INSERT INTO `schedule` (`roster_id`,`team_id`,`role_id`,
+    insert_schedule = """INSERT INTO `schedule` (`roster_id`,`team_id`,`role_id`,
                                                  `auto_populate_threshold`, `advanced_mode`, `scheduler_id`)
                          VALUES ((SELECT `roster`.`id` FROM `roster`
                                       JOIN `team` ON `roster`.`team_id` = `team`.`id`
@@ -413,33 +442,38 @@ def on_post(req, resp, team, roster):
                                  (SELECT `id` FROM `role` WHERE `name` = %(role)s),
                                  %(auto_populate_threshold)s,
                                  %(advanced_mode)s,
-                                 (SELECT `id` FROM `scheduler` WHERE `name` = %(scheduler_name)s))'''
+                                 (SELECT `id` FROM `scheduler` WHERE `name` = %(scheduler_name)s))"""
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
     try:
-        scheduler_arg = data.pop('scheduler', None)
+        scheduler_arg = data.pop("scheduler", None)
         cursor.execute(insert_schedule, data)
         if scheduler_arg:
-            data['scheduler'] = scheduler_arg
+            data["scheduler"] = scheduler_arg
         schedule_id = cursor.lastrowid
         insert_schedule_events(schedule_id, schedule_events, cursor)
 
-        if data['scheduler_name'] == 'round-robin':
-            params = [(schedule_id, name, idx) for idx, name in enumerate(scheduler_data)]
-            cursor.executemany('''INSERT INTO `schedule_order` (`schedule_id`, `user_id`, `priority`)
-                                VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s), %s)''',
-                               params)
+        if data["scheduler_name"] == "round-robin":
+            params = [
+                (schedule_id, name, idx)
+                for idx, name in enumerate(scheduler_data)
+            ]
+            cursor.executemany(
+                """INSERT INTO `schedule_order` (`schedule_id`, `user_id`, `priority`)
+                                VALUES (%s, (SELECT `id` FROM `user` WHERE `name` = %s), %s)""",
+                params,
+            )
     except db.IntegrityError as e:
         err_msg = str(e.args[1])
-        if err_msg == 'Column \'roster_id\' cannot be null':
+        if err_msg == "Column 'roster_id' cannot be null":
             err_msg = 'roster "%s" not found' % roster
-        elif err_msg == 'Column \'role_id\' cannot be null':
-            err_msg = 'role not found'
-        elif err_msg == 'Column \'scheduler_id\' cannot be null':
-            err_msg = 'scheduler not found'
-        elif err_msg == 'Column \'team_id\' cannot be null':
+        elif err_msg == "Column 'role_id' cannot be null":
+            err_msg = "role not found"
+        elif err_msg == "Column 'scheduler_id' cannot be null":
+            err_msg = "scheduler not found"
+        elif err_msg == "Column 'team_id' cannot be null":
             err_msg = 'team "%s" not found' % team
-        raise HTTPError('422 Unprocessable Entity', 'IntegrityError', err_msg)
+        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
     else:
         connection.commit()
     finally:
@@ -447,4 +481,4 @@ def on_post(req, resp, team, roster):
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps({'id': schedule_id})
+    resp.body = json_dumps({"id": schedule_id})

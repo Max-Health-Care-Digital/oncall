@@ -1,15 +1,17 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
+import operator
+from collections import defaultdict
+
+from ujson import dumps as json_dumps
+
 from ... import db
 from .events import all_columns
-from ujson import dumps as json_dumps
-from collections import defaultdict
-import operator
 
 
 def on_get(req, resp, user_name):
-    '''
+    """
     Endpoint for retrieving a user's upcoming shifts. Groups linked events into a single
     entity, with the number of events indicated in the ``num_events`` attribute. Non-linked
     events have ``num_events = 0``. Returns a list of event information for each of that
@@ -48,21 +50,24 @@ def on_get(req, resp, user_name):
         ]
 
 
-    '''
-    role = req.get_param('role', None)
-    limit = req.get_param_as_int('limit')
-    query_end = ' ORDER BY `event`.`start` ASC'
-    query = '''SELECT %s
+    """
+    role = req.get_param("role", None)
+    limit = req.get_param_as_int("limit")
+    query_end = " ORDER BY `event`.`start` ASC"
+    query = (
+        """SELECT %s
                FROM `event`
                JOIN `user` ON `user`.`id` = `event`.`user_id`
                JOIN `team` ON `team`.`id` = `event`.`team_id`
                JOIN `role` ON `role`.`id` = `event`.`role_id`
                WHERE `user`.`id` = (SELECT `id` FROM `user` WHERE `name` = %%s)
-                   AND `event`.`start` > UNIX_TIMESTAMP()''' % all_columns
+                   AND `event`.`start` > UNIX_TIMESTAMP()"""
+        % all_columns
+    )
 
     query_params = [user_name]
     if role:
-        query_end = ' AND `role`.`name` = %s' + query_end
+        query_end = " AND `role`.`name` = %s" + query_end
         query_params.append(role)
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
@@ -73,15 +78,15 @@ def on_get(req, resp, user_name):
     links = defaultdict(list)
     formatted = []
     for event in data:
-        if event['link_id'] is None:
+        if event["link_id"] is None:
             formatted.append(event)
         else:
-            links[event['link_id']].append(event)
+            links[event["link_id"]].append(event)
     for events in links.values():
-        first_event = min(events, key=operator.itemgetter('start'))
-        first_event['num_events'] = len(events)
+        first_event = min(events, key=operator.itemgetter("start"))
+        first_event["num_events"] = len(events)
         formatted.append(first_event)
-    formatted = sorted(formatted, key=operator.itemgetter('start'))
+    formatted = sorted(formatted, key=operator.itemgetter("start"))
     if limit is not None:
         formatted = formatted[:limit]
     resp.body = json_dumps(formatted)

@@ -7,8 +7,8 @@ from falcon import HTTPNotFound
 
 from . import ical
 from .ical_key import get_name_and_type_from_key
-from .user_ical import get_user_events
 from .team_ical import get_team_events
+from .user_ical import get_user_events
 
 allow_no_auth = True
 
@@ -18,8 +18,8 @@ def on_get(req, resp, key):
     information.  Key can be requested at /api/v0/ical_key.
 
     """
-    roles = req.get_param_as_list('roles')
-    excluded_teams = req.get_param_as_list('excludedTeams')
+    roles = req.get_param_as_list("roles")
+    excluded_teams = req.get_param_as_list("excludedTeams")
 
     name_and_type = get_name_and_type_from_key(key)
     if name_and_type is None:
@@ -28,10 +28,14 @@ def on_get(req, resp, key):
     name, type = name_and_type
     start = int(time.time())
     events = []
-    if type == 'user':
-        events = get_user_events(name, start, roles=roles, excluded_teams=excluded_teams)
-    elif type == 'team':
-        events = get_team_events(name, start, roles=roles, include_subscribed=True)
+    if type == "user":
+        events = get_user_events(
+            name, start, roles=roles, excluded_teams=excluded_teams
+        )
+    elif type == "team":
+        events = get_team_events(
+            name, start, roles=roles, include_subscribed=True
+        )
 
     resp.body = ical.events_to_ical(events, name, contact=False)
-    resp.set_header('Content-Type', 'text/calendar')
+    resp.set_header("Content-Type", "text/calendar")

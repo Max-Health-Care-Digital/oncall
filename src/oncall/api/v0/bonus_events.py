@@ -2,11 +2,13 @@
 # See LICENSE in the project root for license information.
 import json
 import time
-from .events import on_get as get_events
 from collections import defaultdict
+
 import requests
+from falcon import HTTP_200, HTTPStatus
 from ujson import dumps as json_dumps
-from falcon import HTTPStatus, HTTP_200
+
+from .events import on_get as get_events
 
 
 class PaidEvents(object):
@@ -94,14 +96,14 @@ class PaidEvents(object):
         """
 
         config = self.config
-        oncall_bonus_blacklist = config.get('bonus_blacklist', [])
-        oncall_bonus_whitelist = config.get('bonus_whitelist', [])
-        bonus_url = config.get('bonus_url', None)
+        oncall_bonus_blacklist = config.get("bonus_blacklist", [])
+        oncall_bonus_whitelist = config.get("bonus_whitelist", [])
+        bonus_url = config.get("bonus_url", None)
         ldap_grouping = defaultdict(list)
 
         # if start time is not specified only fetch events in the future
-        if not req.params.get('start__gt'):
-            req.params['start__gt'] = str(int(time.time()))
+        if not req.params.get("start__gt"):
+            req.params["start__gt"] = str(int(time.time()))
 
         get_events(req, resp)
 
@@ -110,27 +112,37 @@ class PaidEvents(object):
             bonus_response = requests.get(bonus_url)
             bonus_response.raise_for_status()
         except requests.exceptions.RequestException:
-            raise HTTPStatus('503 failed to contact oncall-bonus API')
+            raise HTTPStatus("503 failed to contact oncall-bonus API")
 
         oncall_bonus_teams = bonus_response.json()
 
         for event in json.loads(resp.body):
-            if event['role'].lower() == 'manager':
+            if event["role"].lower() == "manager":
                 continue
 
-            team = event['team']
+            team = event["team"]
             if team in oncall_bonus_whitelist:
-                ldap_grouping[event['user']].append(event)
+                ldap_grouping[event["user"]].append(event)
                 continue
             if team in oncall_bonus_blacklist:
                 continue
 
             # check if event's role is payed for that team
-            team_payment_details = next((item for item in oncall_bonus_teams if item.get('name', '') == team), None)
+            team_payment_details = next(
+                (
+                    item
+                    for item in oncall_bonus_teams
+                    if item.get("name", "") == team
+                ),
+                None,
+            )
             if team_payment_details:
-                team_payed_roles = {'primary': team_payment_details.get('primary_paid', 0), 'secondary': team_payment_details.get('secondary_paid', 0)}
-                if team_payed_roles.get(event['role']):
-                    ldap_grouping[event['user']].append(event)
+                team_payed_roles = {
+                    "primary": team_payment_details.get("primary_paid", 0),
+                    "secondary": team_payment_details.get("secondary_paid", 0),
+                }
+                if team_payed_roles.get(event["role"]):
+                    ldap_grouping[event["user"]].append(event)
 
         resp.status = HTTP_200
         resp.body = json_dumps(ldap_grouping)

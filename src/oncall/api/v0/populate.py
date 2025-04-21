@@ -1,12 +1,14 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from ... import db
-from ...utils import load_json_body
-from ...auth import check_team_auth, login_required
-from .schedules import get_schedules
 from falcon import HTTPNotFound
+
 from oncall.bin.scheduler import load_scheduler
+
+from ... import db
+from ...auth import check_team_auth, login_required
+from ...utils import load_json_body
+from .schedules import get_schedules
 
 
 @login_required
@@ -31,20 +33,22 @@ def on_post(req, resp, schedule_id):
     """
     # TODO: add images to docstring because it doesn't make sense
     data = load_json_body(req)
-    start_time = data['start']
+    start_time = data["start"]
 
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
-    cursor.execute('''SELECT `scheduler`.`name` FROM `schedule`
+    cursor.execute(
+        """SELECT `scheduler`.`name` FROM `schedule`
                       JOIN `scheduler` ON `schedule`.`scheduler_id` = `scheduler`.`id`
-                      WHERE `schedule`.`id` = %s''',
-                   schedule_id)
+                      WHERE `schedule`.`id` = %s""",
+        schedule_id,
+    )
     if cursor.rowcount == 0:
         raise HTTPNotFound()
-    scheduler_name = cursor.fetchone()['name']
+    scheduler_name = cursor.fetchone()["name"]
     scheduler = load_scheduler(scheduler_name)
-    schedule = get_schedules({'id': schedule_id})[0]
-    check_team_auth(schedule['team'], req)
+    schedule = get_schedules({"id": schedule_id})[0]
+    check_team_auth(schedule["team"], req)
     scheduler.populate(schedule, start_time, (connection, cursor))
     cursor.close()
     connection.close()

@@ -1,23 +1,25 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTPNotFound, HTTP_204, HTTPBadRequest
+from falcon import HTTP_204, HTTPBadRequest, HTTPNotFound
 from ujson import dumps as json_dumps
+
 from ... import db
-from ...auth import login_required, check_user_auth
+from ...auth import check_user_auth, login_required
 from ...utils import load_json_body
 from .users import get_user_data
 
-
 writable_columns = {
-    'name': '`user`.`name` as `name`',
-    'full_name': '`user`.`full_name` as `full_name`',
-    'time_zone': '`user`.`time_zone` as `time_zone`',
-    'photo_url': '`user`.`photo_url` as `photo_url`',
-    'contacts': ('`contact_mode`.`name` AS `mode`, '
-                 '`user_contact`.`destination` AS `destination`, '
-                 '`user`.`id` AS `contact_id`'),
-    'active': '`user`.`active` as `active`'
+    "name": "`user`.`name` as `name`",
+    "full_name": "`user`.`full_name` as `full_name`",
+    "time_zone": "`user`.`time_zone` as `time_zone`",
+    "photo_url": "`user`.`photo_url` as `photo_url`",
+    "contacts": (
+        "`contact_mode`.`name` AS `mode`, "
+        "`user_contact`.`destination` AS `destination`, "
+        "`user`.`id` AS `contact_id`"
+    ),
+    "active": "`user`.`active` as `active`",
 }
 
 
@@ -68,8 +70,8 @@ def on_get(req, resp, user_name):
 
     """
     # Format request to filter query on user name
-    req.params['name'] = user_name
-    data = get_user_data(req.get_param_as_list('fields'), req.params)
+    req.params["name"] = user_name
+    data = get_user_data(req.get_param_as_list("fields"), req.params)
     if not data:
         raise HTTPNotFound()
     resp.body = json_dumps(data[0])
@@ -92,7 +94,7 @@ def on_delete(req, resp, user_name):
     check_user_auth(user_name, req)
     connection = db.connect()
     cursor = connection.cursor()
-    cursor.execute('DELETE FROM `user` WHERE `name`=%s', user_name)
+    cursor.execute("DELETE FROM `user` WHERE `name`=%s", user_name)
     connection.commit()
     cursor.close()
     connection.close()
@@ -134,30 +136,30 @@ def on_put(req, resp, user_name):
     :statuscode 204: Successful edit
     :statuscode 404: User not found
     """
-    contacts_query = '''REPLACE INTO user_contact (`user_id`, `mode_id`, `destination`) VALUES
+    contacts_query = """REPLACE INTO user_contact (`user_id`, `mode_id`, `destination`) VALUES
                            ((SELECT `id` FROM `user` WHERE `name` = %(user)s),
                             (SELECT `id` FROM `contact_mode` WHERE `name` = %(mode)s),
                             %(destination)s)
-                            '''
+                            """
     check_user_auth(user_name, req)
     data = load_json_body(req)
 
     set_contacts = False
     set_columns = []
     for field in data:
-        if field == 'contacts':
+        if field == "contacts":
             set_contacts = True
         elif field in writable_columns:
-            set_columns.append('`{0}` = %s'.format(field))
-    set_clause = ', '.join(set_columns)
+            set_columns.append("`{0}` = %s".format(field))
+    set_clause = ", ".join(set_columns)
 
     connection = db.connect()
     cursor = connection.cursor()
     if set_clause:
-        query = 'UPDATE `user` SET {0} WHERE `name` = %s'.format(set_clause)
+        query = "UPDATE `user` SET {0} WHERE `name` = %s".format(set_clause)
         query_data = []
         for field in data:
-            if field != 'contacts':
+            if field != "contacts":
                 query_data.append(data[field])
         query_data.append(user_name)
 
@@ -165,15 +167,17 @@ def on_put(req, resp, user_name):
         if cursor.rowcount != 1:
             cursor.close()
             connection.close()
-            raise HTTPBadRequest('No User Found', 'no user exists with given name')
+            raise HTTPBadRequest(
+                "No User Found", "no user exists with given name"
+            )
 
     if set_contacts:
         contacts = []
-        for mode, dest in data['contacts'].items():
+        for mode, dest in data["contacts"].items():
             contact = {}
-            contact['mode'] = mode
-            contact['destination'] = dest
-            contact['user'] = user_name
+            contact["mode"] = mode
+            contact["destination"] = dest
+            contact["user"] = user_name
             contacts.append(contact)
         cursor.executemany(contacts_query, contacts)
     connection.commit()

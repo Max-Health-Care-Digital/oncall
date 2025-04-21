@@ -1,9 +1,10 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from ... import db
-from ...auth import login_required, check_team_auth
 from falcon import HTTPNotFound
+
+from ... import db
+from ...auth import check_team_auth, login_required
 
 
 @login_required
@@ -12,11 +13,13 @@ def on_delete(req, resp, team, subscription, role):
     connection = db.connect()
     cursor = connection.cursor()
 
-    cursor.execute('''DELETE FROM `team_subscription`
+    cursor.execute(
+        """DELETE FROM `team_subscription`
                       WHERE team_id = (SELECT `id` FROM `team` WHERE `name` = %s)
                       AND `subscription_id` = (SELECT `id` FROM `team` WHERE `name` = %s)\
-                      AND `role_id` = (SELECT `id` FROM `role` WHERE `name` = %s)''',
-                   (team, subscription, role))
+                      AND `role_id` = (SELECT `id` FROM `role` WHERE `name` = %s)""",
+        (team, subscription, role),
+    )
     deleted = cursor.rowcount
     connection.commit()
     cursor.close()

@@ -1,43 +1,52 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
+import falcon
 from beaker.middleware import SessionMiddleware
 from falcon.testing import TestCase
-from oncall.app import ReqBodyMiddleware
-import falcon
 
 from oncall import db
-from oncall.auth import (
-    login, logout, login_required, check_user_auth, check_team_auth
-)
-from oncall.auth.modules.sso_debug import Authenticator as sso_authenticator
+from oncall.app import ReqBodyMiddleware
+from oncall.auth import check_team_auth, check_user_auth
 from oncall.auth import init as init_auth
+from oncall.auth import login, login_required, logout
+from oncall.auth.modules.sso_debug import Authenticator as sso_authenticator
 
 sso_auth_manager = sso_authenticator()
-test_config = {'auth': {'module': 'oncall.auth.modules.debug',
-                        'sso_module': 'oncall.auth.modules.sso_debug'},
-               'db': {'conn': {'kwargs': {'charset': 'utf8',
-                                          'database': 'oncall-api',
-                                          'echo': True,
-                                          'host': '127.0.0.1',
-                                          'scheme': 'mysql+pymysql',
-                                          'user': 'root'},
-                               'str': '%(scheme)s://%(user)s@%(host)s/%(database)s?charset=%(charset)s'},
-                      'kwargs': {'pool_recycle': 3600}},
-               'server': {'host': '0.0.0.0', 'port': 8080},
-               'debug': True,
-               'session': {'encrypt_key': 'abc', 'sign_key': '123'}}
+test_config = {
+    "auth": {
+        "module": "oncall.auth.modules.debug",
+        "sso_module": "oncall.auth.modules.sso_debug",
+    },
+    "db": {
+        "conn": {
+            "kwargs": {
+                "charset": "utf8",
+                "database": "oncall-api",
+                "echo": True,
+                "host": "127.0.0.1",
+                "scheme": "mysql+pymysql",
+                "user": "root",
+            },
+            "str": "%(scheme)s://%(user)s@%(host)s/%(database)s?charset=%(charset)s",
+        },
+        "kwargs": {"pool_recycle": 3600},
+    },
+    "server": {"host": "0.0.0.0", "port": 8080},
+    "debug": True,
+    "session": {"encrypt_key": "abc", "sign_key": "123"},
+}
 
 
 class TestLogin(TestCase):
     config = test_config
     session_opts = {
-        'session.type': 'cookie',
-        'session.key': 'oncall-auth',
+        "session.type": "cookie",
+        "session.key": "oncall-auth",
         # 'session.httponly': True,
-        'session.encrypt_key': config['session']['encrypt_key'],
-        'session.validate_key': config['session']['sign_key'],
-        'session.crypto_type': 'cryptography'
+        "session.encrypt_key": config["session"]["encrypt_key"],
+        "session.validate_key": config["session"]["sign_key"],
+        "session.crypto_type": "cryptography",
     }
 
     class UserDummy(object):
@@ -57,36 +66,55 @@ class TestLogin(TestCase):
     def setUp(self):
         super(TestLogin, self).setUp()
         login.auth_manager = self.DummyAuthenticator()
-        api = falcon.App(middleware=[
-            ReqBodyMiddleware(),
-        ])
-        init_auth(api, test_config['auth'])
+        api = falcon.App(
+            middleware=[
+                ReqBodyMiddleware(),
+            ]
+        )
+        init_auth(api, test_config["auth"])
         api.req_options.auto_parse_form_urlencoded = False
         self.app = api
-        self.app.add_route('/login', login)
-        self.app.add_route('/logout', logout)
-        self.app.add_route('/dummy/{user}', self.UserDummy())
-        self.app.add_route('/dummy2/{team}', self.TeamDummy())
+        self.app.add_route("/login", login)
+        self.app.add_route("/logout", logout)
+        self.app.add_route("/dummy/{user}", self.UserDummy())
+        self.app.add_route("/dummy2/{team}", self.TeamDummy())
         self.app = SessionMiddleware(self.app, self.session_opts)
 
-        self.user_name = 'test_login_user'
-        self.admin_name = 'test_login_admin'
-        self.team_name = 'test_login_team'
+        self.user_name = "test_login_user"
+        self.admin_name = "test_login_admin"
+        self.team_name = "test_login_team"
 
         connection = db.connect()
         cursor = connection.cursor()
         # Create users
-        cursor.execute("INSERT INTO `user` (`name`, `active`) VALUES (%s, 1)", self.user_name)
+        cursor.execute(
+            "INSERT INTO `user` (`name`, `active`) VALUES (%s, 1)",
+            self.user_name,
+        )
         self.user_id = cursor.lastrowid
-        cursor.execute("INSERT INTO `user` (`name`, `active`) VALUES (%s, 1)", self.admin_name)
+        cursor.execute(
+            "INSERT INTO `user` (`name`, `active`) VALUES (%s, 1)",
+            self.admin_name,
+        )
         self.admin_id = cursor.lastrowid
 
         # Set up team
-        cursor.execute("INSERT INTO `team` (`name`) VALUES (%s)", self.team_name)
+        cursor.execute(
+            "INSERT INTO `team` (`name`) VALUES (%s)", self.team_name
+        )
         self.team_id = cursor.lastrowid
-        cursor.execute("INSERT INTO `team_user` VALUES (%s, %s)", (self.team_id, self.user_id))
-        cursor.execute("INSERT INTO `team_user` VALUES (%s, %s)", (self.team_id, self.admin_id))
-        cursor.execute("INSERT INTO `team_admin` VALUES (%s, %s)", (self.team_id, self.admin_id))
+        cursor.execute(
+            "INSERT INTO `team_user` VALUES (%s, %s)",
+            (self.team_id, self.user_id),
+        )
+        cursor.execute(
+            "INSERT INTO `team_user` VALUES (%s, %s)",
+            (self.team_id, self.admin_id),
+        )
+        cursor.execute(
+            "INSERT INTO `team_admin` VALUES (%s, %s)",
+            (self.team_id, self.admin_id),
+        )
 
         connection.commit()
         cursor.close()
@@ -97,7 +125,10 @@ class TestLogin(TestCase):
         cursor = connection.cursor()
 
         cursor.execute("DELETE FROM `team` WHERE `name` = %s", self.team_name)
-        cursor.execute("DELETE FROM `user` WHERE `name` IN %s", ([self.user_name, self.admin_name],))
+        cursor.execute(
+            "DELETE FROM `user` WHERE `name` IN %s",
+            ([self.user_name, self.admin_name],),
+        )
 
         connection.commit()
         cursor.close()
@@ -105,63 +136,95 @@ class TestLogin(TestCase):
 
     def test_user_auth(self):
         # Test no login
-        re = self.simulate_get('/dummy/' + self.user_name)
+        re = self.simulate_get("/dummy/" + self.user_name)
         assert re.status_code == 401
 
         # For tests below, put username/password into query string to
         # simulate a xxx-form-urlencoded form post
         # Test good login, auth check on self
-        re = self.simulate_post('/login', body='username=%s&password=abc' % self.user_name)
+        re = self.simulate_post(
+            "/login", body="username=%s&password=abc" % self.user_name
+        )
         assert re.status_code == 200
-        cookies = re.headers.get('set-cookie')
-        token = str(re.json['csrf_token'])
-        re = self.simulate_get('/dummy/' + self.user_name, headers={'X-CSRF-TOKEN': token, 'Cookie': cookies})
+        cookies = re.headers.get("set-cookie")
+        token = str(re.json["csrf_token"])
+        re = self.simulate_get(
+            "/dummy/" + self.user_name,
+            headers={"X-CSRF-TOKEN": token, "Cookie": cookies},
+        )
         assert re.status_code == 200
 
         # Test good login, auth check on manager
-        re = self.simulate_post('/login', body='username=%s&password=abc' % self.admin_name)
+        re = self.simulate_post(
+            "/login", body="username=%s&password=abc" % self.admin_name
+        )
         assert re.status_code == 200
-        cookies = re.headers.get('set-cookie')
-        token = str(re.json['csrf_token'])
-        re = self.simulate_get('/dummy/' + self.user_name, headers={'X-CSRF-TOKEN': token, 'Cookie': cookies})
+        cookies = re.headers.get("set-cookie")
+        token = str(re.json["csrf_token"])
+        re = self.simulate_get(
+            "/dummy/" + self.user_name,
+            headers={"X-CSRF-TOKEN": token, "Cookie": cookies},
+        )
         assert re.status_code == 200
 
     def test_sso_auth(self):
-        re = self.simulate_get('/dummy/' + self.user_name, headers={'SSO-DEBUG-HEADER': self.user_name})
+        re = self.simulate_get(
+            "/dummy/" + self.user_name,
+            headers={"SSO-DEBUG-HEADER": self.user_name},
+        )
         assert re.status_code == 200
 
         # user is not part of the team or an admin so check_user_auth fails despite login succeeding
-        re = self.simulate_get('/dummy/' + self.user_name, headers={'SSO-DEBUG-HEADER': 'bad_user'})
+        re = self.simulate_get(
+            "/dummy/" + self.user_name, headers={"SSO-DEBUG-HEADER": "bad_user"}
+        )
         assert re.status_code == 403
 
     def test_team_auth(self):
         # Test good login, auth check on manager
-        re = self.simulate_post('/login', body='username=%s&password=abc' % self.admin_name)
+        re = self.simulate_post(
+            "/login", body="username=%s&password=abc" % self.admin_name
+        )
         assert re.status_code == 200
-        cookies = re.headers.get('set-cookie')
-        token = str(re.json['csrf_token'])
-        re = self.simulate_get('/dummy2/' + self.team_name, headers={'X-CSRF-TOKEN': token, 'Cookie': cookies})
+        cookies = re.headers.get("set-cookie")
+        token = str(re.json["csrf_token"])
+        re = self.simulate_get(
+            "/dummy2/" + self.team_name,
+            headers={"X-CSRF-TOKEN": token, "Cookie": cookies},
+        )
         assert re.status_code == 200
 
     def test_logout(self):
-        re = self.simulate_post('/login', body='username=%s&password=abc' % self.user_name)
-        cookies = re.headers.get('set-cookie')
+        re = self.simulate_post(
+            "/login", body="username=%s&password=abc" % self.user_name
+        )
+        cookies = re.headers.get("set-cookie")
         assert re.status_code == 200
-        token = str(re.json['csrf_token'])
+        token = str(re.json["csrf_token"])
         try:
-            re = self.simulate_post('/logout', headers={'X-CSRF-TOKEN': token, 'Cookie': cookies})
+            re = self.simulate_post(
+                "/logout", headers={"X-CSRF-TOKEN": token, "Cookie": cookies}
+            )
         except KeyError:
             # FIXME: remove this try except after
             # https://github.com/falconry/falcon/pull/957 is merged
             pass
         assert re.status_code == 200
-        re = self.simulate_get('/dummy/' + self.user_name, headers={'X-CSRF-TOKEN': token, 'Cookie': cookies})
+        re = self.simulate_get(
+            "/dummy/" + self.user_name,
+            headers={"X-CSRF-TOKEN": token, "Cookie": cookies},
+        )
         assert re.status_code == 401
 
     def test_csrf(self):
         # Test good login, auth check on manager
-        re = self.simulate_post('/login', body='username=%s&password=abc' % self.admin_name)
+        re = self.simulate_post(
+            "/login", body="username=%s&password=abc" % self.admin_name
+        )
         assert re.status_code == 200
-        cookies = re.headers.get('set-cookie')
-        re = self.simulate_get('/dummy2/' + self.team_name, headers={'X-CSRF-TOKEN': 'foo', 'Cookie': cookies})
+        cookies = re.headers.get("set-cookie")
+        re = self.simulate_get(
+            "/dummy2/" + self.team_name,
+            headers={"X-CSRF-TOKEN": "foo", "Cookie": cookies},
+        )
         assert re.status_code == 401

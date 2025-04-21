@@ -2,71 +2,83 @@
 # See LICENSE in the project root for license information.
 
 import time
-from falcon import HTTP_201, HTTPError, HTTPBadRequest
+
+from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
-from ...auth import login_required, check_calendar_auth
-from ... import db, constants
-from ...utils import (
-    load_json_body, user_in_team_by_name, create_notification, create_audit
-)
+
+from ... import constants, db
+from ...auth import check_calendar_auth, login_required
 from ...constants import EVENT_CREATED
+from ...utils import (
+    create_audit,
+    create_notification,
+    load_json_body,
+    user_in_team_by_name,
+)
 
 columns = {
-    'id': '`event`.`id` as `id`',
-    'start': '`event`.`start` as `start`',
-    'end': '`event`.`end` as `end`',
-    'role': '`role`.`name` as `role`',
-    'team': '`team`.`name` as `team`',
-    'user': '`user`.`name` as `user`',
-    'full_name': '`user`.`full_name` as `full_name`',
-    'schedule_id': '`event`.`schedule_id`',
-    'link_id': '`event`.`link_id`',
-    'note': '`event`.`note`',
+    "id": "`event`.`id` as `id`",
+    "start": "`event`.`start` as `start`",
+    "end": "`event`.`end` as `end`",
+    "role": "`role`.`name` as `role`",
+    "team": "`team`.`name` as `team`",
+    "user": "`user`.`name` as `user`",
+    "full_name": "`user`.`full_name` as `full_name`",
+    "schedule_id": "`event`.`schedule_id`",
+    "link_id": "`event`.`link_id`",
+    "note": "`event`.`note`",
 }
 
-all_columns = ', '.join(columns.values())
+all_columns = ", ".join(columns.values())
 
 constraints = {
-    'id': '`event`.`id` = %s',
-    'id__eq': '`event`.`id` = %s',
-    'id__ne': '`event`.`id` != %s',
-    'id__gt': '`event`.`id` > %s',
-    'id__ge': '`event`.`id` >= %s',
-    'id__lt': '`event`.`id` < %s',
-    'id__le': '`event`.`id` <= %s',
-    'start': '`event`.`start` = %s',
-    'start__eq': '`event`.`start` = %s',
-    'start__ne': '`event`.`start` != %s',
-    'start__gt': '`event`.`start` > %s',
-    'start__ge': '`event`.`start` >= %s',
-    'start__lt': '`event`.`start` < %s',
-    'start__le': '`event`.`start` <= %s',
-    'end': '`event`.`end` = %s',
-    'end__eq': '`event`.`end` = %s',
-    'end__ne': '`event`.`end` != %s',
-    'end__gt': '`event`.`end` > %s',
-    'end__ge': '`event`.`end` >= %s',
-    'end__lt': '`event`.`end` < %s',
-    'end__le': '`event`.`end` <= %s',
-    'role': '`role`.`name` = %s',
-    'role__eq': '`role`.`name` = %s',
-    'role__contains': '`role`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'role__startswith': '`role`.`name` LIKE CONCAT(%s, "%%")',
-    'role__endswith': '`role`.`name` LIKE CONCAT("%%", %s)',
-    'team': '`team`.`name` = %s',
-    'team__eq': '`team`.`name` = %s',
-    'team__contains': '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'team__startswith': '`team`.`name` LIKE CONCAT(%s, "%%")',
-    'team__endswith': '`team`.`name` LIKE CONCAT("%%", %s)',
-    'team_id': '`team`.`id` = %s',
-    'user': '`user`.`name` = %s',
-    'user__eq': '`user`.`name` = %s',
-    'user__contains': '`user`.`name` LIKE CONCAT("%%", %s, "%%")',
-    'user__startswith': '`user`.`name` LIKE CONCAT(%s, "%%")',
-    'user__endswith': '`user`.`name` LIKE CONCAT("%%", %s)'
+    "id": "`event`.`id` = %s",
+    "id__eq": "`event`.`id` = %s",
+    "id__ne": "`event`.`id` != %s",
+    "id__gt": "`event`.`id` > %s",
+    "id__ge": "`event`.`id` >= %s",
+    "id__lt": "`event`.`id` < %s",
+    "id__le": "`event`.`id` <= %s",
+    "start": "`event`.`start` = %s",
+    "start__eq": "`event`.`start` = %s",
+    "start__ne": "`event`.`start` != %s",
+    "start__gt": "`event`.`start` > %s",
+    "start__ge": "`event`.`start` >= %s",
+    "start__lt": "`event`.`start` < %s",
+    "start__le": "`event`.`start` <= %s",
+    "end": "`event`.`end` = %s",
+    "end__eq": "`event`.`end` = %s",
+    "end__ne": "`event`.`end` != %s",
+    "end__gt": "`event`.`end` > %s",
+    "end__ge": "`event`.`end` >= %s",
+    "end__lt": "`event`.`end` < %s",
+    "end__le": "`event`.`end` <= %s",
+    "role": "`role`.`name` = %s",
+    "role__eq": "`role`.`name` = %s",
+    "role__contains": '`role`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "role__startswith": '`role`.`name` LIKE CONCAT(%s, "%%")',
+    "role__endswith": '`role`.`name` LIKE CONCAT("%%", %s)',
+    "team": "`team`.`name` = %s",
+    "team__eq": "`team`.`name` = %s",
+    "team__contains": '`team`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "team__startswith": '`team`.`name` LIKE CONCAT(%s, "%%")',
+    "team__endswith": '`team`.`name` LIKE CONCAT("%%", %s)',
+    "team_id": "`team`.`id` = %s",
+    "user": "`user`.`name` = %s",
+    "user__eq": "`user`.`name` = %s",
+    "user__contains": '`user`.`name` LIKE CONCAT("%%", %s, "%%")',
+    "user__startswith": '`user`.`name` LIKE CONCAT(%s, "%%")',
+    "user__endswith": '`user`.`name` LIKE CONCAT("%%", %s)',
 }
 
-TEAM_PARAMS = {'team', 'team__eq', 'team__contains', 'team__startswith', 'team_endswith', 'team_id'}
+TEAM_PARAMS = {
+    "team",
+    "team__eq",
+    "team__contains",
+    "team__startswith",
+    "team_endswith",
+    "team_id",
+}
 
 
 def on_get(req, resp):
@@ -144,21 +156,24 @@ def on_get(req, resp):
     :statuscode 200: no error
     :statuscode 400: bad request
     """
-    fields = req.get_param_as_list('fields')
+    fields = req.get_param_as_list("fields")
     if fields:
         fields = [columns[f] for f in fields if f in columns]
-    req.params.pop('fields', None)
-    include_sub = req.get_param_as_bool('include_subscribed')
+    req.params.pop("fields", None)
+    include_sub = req.get_param_as_bool("include_subscribed")
     if include_sub is None:
         include_sub = True
-    req.params.pop('include_subscribed', None)
-    cols = ', '.join(fields) if fields else all_columns
+    req.params.pop("include_subscribed", None)
+    cols = ", ".join(fields) if fields else all_columns
     if any(key not in constraints for key in req.params):
-        raise HTTPBadRequest('Bad constraint param')
-    query = '''SELECT %s FROM `event`
+        raise HTTPBadRequest("Bad constraint param")
+    query = (
+        """SELECT %s FROM `event`
                JOIN `user` ON `user`.`id` = `event`.`user_id`
                JOIN `team` ON `team`.`id` = `event`.`team_id`
-               JOIN `role` ON `role`.`id` = `event`.`role_id`''' % cols
+               JOIN `role` ON `role`.`id` = `event`.`role_id`"""
+        % cols
+    )
 
     where_params = []
     where_vals = []
@@ -183,21 +198,32 @@ def on_get(req, resp):
             val = req.get_param(key)
             team_where.append(constraints[key])
             subs_vals.append(val)
-        subs_and = ' AND '.join(team_where)
-        cursor.execute('''SELECT `subscription_id`, `role_id` FROM `team_subscription`
+        subs_and = " AND ".join(team_where)
+        cursor.execute(
+            """SELECT `subscription_id`, `role_id` FROM `team_subscription`
                           JOIN `team` ON `team_id` = `team`.`id`
-                          WHERE %s''' % subs_and,
-                       subs_vals)
+                          WHERE %s"""
+            % subs_and,
+            subs_vals,
+        )
         if cursor.rowcount != 0:
             # Build where clause based on team params and subscriptions
-            subs_and = '(%s OR (%s))' % (subs_and, ' OR '.join(['`team`.`id` = %s AND `role`.`id` = %s' %
-                                                                (row['subscription_id'], row['role_id']) for row in cursor]))
+            subs_and = "(%s OR (%s))" % (
+                subs_and,
+                " OR ".join(
+                    [
+                        "`team`.`id` = %s AND `role`.`id` = %s"
+                        % (row["subscription_id"], row["role_id"])
+                        for row in cursor
+                    ]
+                ),
+            )
         where_params.append(subs_and)
         where_vals += subs_vals
 
-    where_query = ' AND '.join(where_params)
+    where_query = " AND ".join(where_params)
     if where_query:
-        query = '%s WHERE %s' % (query, where_query)
+        query = "%s WHERE %s" % (query, where_query)
     cursor.execute(query, where_vals)
     data = cursor.fetchall()
     cursor.close()
@@ -250,66 +276,82 @@ def on_post(req, resp):
     """
     data = load_json_body(req)
     now = time.time()
-    if data['start'] < now - constants.GRACE_PERIOD:
-        raise HTTPBadRequest('Invalid event', 'Creating events in the past not allowed')
-    if data['start'] >= data['end']:
-        raise HTTPBadRequest('Invalid event', 'Event must start before it ends')
-    check_calendar_auth(data['team'], req)
+    if data["start"] < now - constants.GRACE_PERIOD:
+        raise HTTPBadRequest(
+            "Invalid event", "Creating events in the past not allowed"
+        )
+    if data["start"] >= data["end"]:
+        raise HTTPBadRequest("Invalid event", "Event must start before it ends")
+    check_calendar_auth(data["team"], req)
 
-    columns = ['`start`', '`end`', '`user_id`', '`team_id`', '`role_id`']
-    values = ['%(start)s', '%(end)s',
-              '(SELECT `id` FROM `user` WHERE `name`=%(user)s)',
-              '(SELECT `id` FROM `team` WHERE `name`=%(team)s)',
-              '(SELECT `id` FROM `role` WHERE `name`=%(role)s)']
+    columns = ["`start`", "`end`", "`user_id`", "`team_id`", "`role_id`"]
+    values = [
+        "%(start)s",
+        "%(end)s",
+        "(SELECT `id` FROM `user` WHERE `name`=%(user)s)",
+        "(SELECT `id` FROM `team` WHERE `name`=%(team)s)",
+        "(SELECT `id` FROM `role` WHERE `name`=%(role)s)",
+    ]
 
-    if 'schedule_id' in data:
-        columns.append('`schedule_id`')
-        values.append('%(schedule_id)s')
+    if "schedule_id" in data:
+        columns.append("`schedule_id`")
+        values.append("%(schedule_id)s")
 
-    if 'note' in data:
-        columns.append('`note`')
-        values.append('%(note)s')
+    if "note" in data:
+        columns.append("`note`")
+        values.append("%(note)s")
 
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
 
-    if not user_in_team_by_name(cursor, data['user'], data['team']):
-        raise HTTPBadRequest('Invalid event', 'User must be part of the team')
+    if not user_in_team_by_name(cursor, data["user"], data["team"]):
+        raise HTTPBadRequest("Invalid event", "User must be part of the team")
 
     try:
-        query = 'INSERT INTO `event` (%s) VALUES (%s)' % (','.join(columns), ','.join(values))
+        query = "INSERT INTO `event` (%s) VALUES (%s)" % (
+            ",".join(columns),
+            ",".join(values),
+        )
         cursor.execute(query, data)
         event_id = cursor.lastrowid
 
-        cursor.execute('SELECT team_id, role_id, user_id, start, full_name '
-                       'FROM event JOIN user ON user.`id` = user_id WHERE event.id=%s', event_id)
+        cursor.execute(
+            "SELECT team_id, role_id, user_id, start, full_name "
+            "FROM event JOIN user ON user.`id` = user_id WHERE event.id=%s",
+            event_id,
+        )
         ev_info = cursor.fetchone()
         context = {
-            'team': data['team'],
-            'role': data['role'],
-            'full_name': ev_info['full_name']
+            "team": data["team"],
+            "role": data["role"],
+            "full_name": ev_info["full_name"],
         }
-        create_notification(context, ev_info['team_id'],
-                            [ev_info['role_id']],
-                            EVENT_CREATED,
-                            [ev_info['user_id']],
-                            cursor,
-                            start_time=ev_info['start'])
-        create_audit({'new_event_id': event_id, 'request_body': data},
-                     data['team'],
-                     EVENT_CREATED,
-                     req,
-                     cursor)
+        create_notification(
+            context,
+            ev_info["team_id"],
+            [ev_info["role_id"]],
+            EVENT_CREATED,
+            [ev_info["user_id"]],
+            cursor,
+            start_time=ev_info["start"],
+        )
+        create_audit(
+            {"new_event_id": event_id, "request_body": data},
+            data["team"],
+            EVENT_CREATED,
+            req,
+            cursor,
+        )
         connection.commit()
     except db.IntegrityError as e:
         err_msg = str(e.args[1])
-        if err_msg == 'Column \'role_id\' cannot be null':
-            err_msg = 'role "%s" not found' % data['role']
-        elif err_msg == 'Column \'user_id\' cannot be null':
-            err_msg = 'user "%s" not found' % data['user']
-        elif err_msg == 'Column \'team_id\' cannot be null':
-            err_msg = 'team "%s" not found' % data['team']
-        raise HTTPError('422 Unprocessable Entity', 'IntegrityError', err_msg)
+        if err_msg == "Column 'role_id' cannot be null":
+            err_msg = 'role "%s" not found' % data["role"]
+        elif err_msg == "Column 'user_id' cannot be null":
+            err_msg = 'user "%s" not found' % data["user"]
+        elif err_msg == "Column 'team_id' cannot be null":
+            err_msg = 'team "%s" not found' % data["team"]
+        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
     finally:
         cursor.close()
         connection.close()

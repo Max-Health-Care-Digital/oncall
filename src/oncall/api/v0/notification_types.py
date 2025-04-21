@@ -1,8 +1,9 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from ... import db
 from ujson import dumps as json_dumps
+
+from ... import db
 
 
 def on_get(req, resp):
@@ -32,7 +33,7 @@ def on_get(req, resp):
     """
     connection = db.connect()
     cursor = connection.cursor(db.DictCursor)
-    cursor.execute('SELECT `name`, `is_reminder` FROM `notification_type`')
+    cursor.execute("SELECT `name`, `is_reminder` FROM `notification_type`")
     data = cursor.fetchall()
     cursor.close()
     connection.close()

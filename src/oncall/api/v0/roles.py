@@ -1,6 +1,8 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
+from collections import defaultdict
+
 from falcon import HTTP_201, HTTPError
 from ujson import dumps as json_dumps
 
@@ -32,6 +34,7 @@ constraints = {
 }
 
 
+# This function receives a cursor, it does NOT need to manage the connection
 def get_role_ids(cursor, roles):
     if not roles:
         return []
@@ -43,6 +46,9 @@ def get_role_ids(cursor, roles):
     )
     # we need prepared statements here because roles come from user input
     cursor.execute(role_query, roles)
+    # It's good practice to fetch all results if you need them outside the cursor's
+    # immediate scope, though fetching all with fetchall() works too.
+    # No close() needed here, the connection/cursor are managed by the caller.
     return [row["id"] for row in cursor]
 
 
@@ -94,35 +100,51 @@ def on_get(req, resp):
         if key in constraints:
             where_params.append(constraints[key])
             where_vals.append(val)
+
     where_queries = " AND ".join(where_params)
     if where_queries:
         query = "%s WHERE %s" % (query, where_queries)
 
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
-    cursor.execute(query, where_vals)
-    data = cursor.fetchall()
-    cursor.close()
-    connection.close()
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a dictionary cursor from the connection wrapper
+        cursor = connection.cursor(db.DictCursor)
+        cursor.execute(query, where_vals)
+        data = cursor.fetchall()
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit cursor.close() and connection.close() are no longer needed.
+
     resp.body = json_dumps(data)
 
 
 @debug_only
 def on_post(req, resp):
     data = load_json_body(req)
-    new_role = data["name"]
-    connection = db.connect()
-    cursor = connection.cursor()
-    try:
-        cursor.execute("INSERT INTO `role` (`name`) VALUES (%s)", new_role)
-        connection.commit()
-    except db.IntegrityError as e:
-        err_msg = str(e.args[1])
-        if "Duplicate entry" in err_msg:
-            err_msg = 'role "%s" already existed' % new_role
-        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
-    finally:
-        cursor.close()
-        connection.close()
+    # Added a check for the required 'name' key
+    new_role = data.get("name")
+    if new_role is None:
+        # Raise a bad request if name is missing
+        raise HTTPError("400 Bad Request", "Missing Parameter", "Missing 'name' in request body")
+
+    # Use the 'with' statement for safe connection and transaction management
+    # The ContextualRawConnection will handle rollback if an exception occurs
+    # within the 'with' block and commit if `connection.commit()` is called.
+    with db.connect() as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("INSERT INTO `role` (`name`) VALUES (%s)", new_role)
+            # Commit the transaction explicitly on success
+            connection.commit()
+        except db.IntegrityError as e:
+            # The 'with' statement's __exit__ will automatically call rollback
+            # when an exception occurs within the block.
+            err_msg = str(e.args[1])
+            if "Duplicate entry" in err_msg:
+                err_msg = 'role "%s" already existed' % new_role
+            # Re-raise the exception after formatting the error message
+            raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg) from e
+        # The connection and cursor are automatically closed/released by the 'with' statement
+        # No need for a finally block to close connection/cursor anymore.
 
     resp.status = HTTP_201

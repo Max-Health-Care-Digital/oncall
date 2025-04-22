@@ -113,116 +113,131 @@ def on_get(req, resp, team):
         }
 
     """
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a dictionary cursor from the connection wrapper
+        cursor = connection.cursor(db.DictCursor)
 
-    cursor.execute(
-        "SELECT `id`, `override_phone_number` FROM `team` WHERE `name` = %s",
-        team,
-    )
-    if cursor.rowcount < 1:
-        raise HTTPNotFound()
-    data = cursor.fetchone()
-    team_id = data["id"]
-    override_num = data["override_phone_number"]
-    current_query = """
-        SELECT `user`.`full_name` AS `full_name`,
-               `user`.`photo_url`,
-               `event`.`start`, `event`.`end`,
-               `event`.`user_id`,
-               `user`.`name` AS `user`,
-               `team`.`name` AS `team`,
-               `role`.`name` AS `role`
-        FROM `event`
-        JOIN `user` ON `event`.`user_id` = `user`.`id`
-        JOIN `team` ON `event`.`team_id` = `team`.`id`
-        JOIN `role` ON `role`.`id` = `event`.`role_id`
-        WHERE UNIX_TIMESTAMP() BETWEEN `event`.`start` AND `event`.`end`"""
-    team_where = "`team`.`id` = %s"
-    cursor.execute(
-        """SELECT `subscription_id`, `role_id` FROM `team_subscription`
-                      JOIN `team` ON `team_id` = `team`.`id`
-                      WHERE %s"""
-        % team_where,
-        team_id,
-    )
-
-    if cursor.rowcount != 0:
-        # Check conditions are true for either team OR subscriber
-        team_where = "(%s OR (%s))" % (
-            team_where,
-            " OR ".join(
-                [
-                    "`event`.`team_id` = %s AND `event`.`role_id` = %s"
-                    % (row["subscription_id"], row["role_id"])
-                    for row in cursor
-                ]
-            ),
+        cursor.execute(
+            "SELECT `id`, `override_phone_number` FROM `team` WHERE `name` = %s",
+            team,
+        )
+        if cursor.rowcount < 1:
+            # Raise the exception within the 'with' block.
+            # The context manager will handle closing the connection.
+            raise HTTPNotFound()
+        data = cursor.fetchone()
+        team_id = data["id"]
+        override_num = data["override_phone_number"]
+        current_query = """
+            SELECT `user`.`full_name` AS `full_name`,
+                   `user`.`photo_url`,
+                   `event`.`start`, `event`.`end`,
+                   `event`.`user_id`,
+                   `user`.`name` AS `user`,
+                   `team`.`name` AS `team`,
+                   `role`.`name` AS `role`
+            FROM `event`
+            JOIN `user` ON `event`.`user_id` = `user`.`id`
+            JOIN `team` ON `event`.`team_id` = `team`.`id`
+            JOIN `role` ON `role`.`id` = `event`.`role_id`
+            WHERE UNIX_TIMESTAMP() BETWEEN `event`.`start` AND `event`.`end`"""
+        team_where = "`team`.`id` = %s"
+        cursor.execute(
+            """SELECT `subscription_id`, `role_id` FROM `team_subscription`
+                          JOIN `team` ON `team_id` = `team`.`id`
+                          WHERE %s"""
+            % team_where,
+            team_id,
         )
 
-    cursor.execute(" AND ".join((current_query, team_where)), team_id)
-    payload = {}
-    users = set([])
-    payload["current"] = defaultdict(list)
-    for event in cursor:
-        payload["current"][event["role"]].append(event)
-        users.add(event["user_id"])
+        if cursor.rowcount != 0:
+            # Check conditions are true for either team OR subscriber
+            # Note: string formatting for the WHERE clause like this is generally
+            # less safe than parameterized queries, but maintaining existing logic.
+            # Ensure team_where is still using %s for the team_id parameter in the execute call.
+            team_where = "(%s OR (%s))" % (
+                team_where,
+                " OR ".join(
+                    [
+                        "`event`.`team_id` = %s AND `event`.`role_id` = %s"
+                        % (row["subscription_id"], row["role_id"])
+                        for row in cursor
+                    ]
+                ),
+            )
 
-    next_query = (
-        """
-        SELECT `role`.`name` AS `role`,
-               `user`.`full_name` AS `full_name`,
-               `event`.`start`,
-               `event`.`end`,
-               `user`.`photo_url`,
-               `user`.`name` AS `user`,
-               `event`.`user_id`,
-               `event`.`role_id`,
-               `event`.`team_id`
-        FROM `event`
-        JOIN `role` ON `event`.`role_id` = `role`.`id`
-        JOIN `user` ON `event`.`user_id` = `user`.`id`
+        # Execute the current query. Pass team_id as a parameter for the %s placeholder.
+        cursor.execute(" AND ".join((current_query, team_where)), team_id)
+        payload = {}
+        users = set([])
+        payload["current"] = defaultdict(list)
+        for event in cursor:
+            payload["current"][event["role"]].append(event)
+            users.add(event["user_id"])
 
-        JOIN (SELECT `event`.`role_id`, `event`.`team_id`, MIN(`event`.`start` - UNIX_TIMESTAMP()) AS dist
-              FROM `event` JOIN `team` ON `team`.`id` = `event`.`team_id`
-              WHERE `start` > UNIX_TIMESTAMP() AND %s
-              GROUP BY `event`.`role_id`, `event`.`team_id`) AS t1
-            ON `event`.`role_id` = `t1`.`role_id`
-                AND `event`.`start` - UNIX_TIMESTAMP() = `t1`.dist
-                AND `event`.`team_id` = `t1`.`team_id`"""
-        % team_where
-    )
-    cursor.execute(next_query, team_id)
-    payload["next"] = defaultdict(list)
-    for event in cursor:
-        payload["next"][event["role"]].append(event)
-        users.add(event["user_id"])
+        next_query = (
+            """
+            SELECT `role`.`name` AS `role`,
+                   `user`.`full_name` AS `full_name`,
+                   `event`.`start`,
+                   `event`.`end`,
+                   `user`.`photo_url`,
+                   `user`.`name` AS `user`,
+                   `event`.`user_id`,
+                   `event`.`role_id`,
+                   `event`.`team_id`
+            FROM `event`
+            JOIN `role` ON `event`.`role_id` = `role`.`id`
+            JOIN `user` ON `event`.`user_id` = `user`.`id`
 
-    if users:
-        # TODO: write a test for empty users
-        contacts_query = """
-            SELECT `contact_mode`.`name` AS `mode`,
-                   `user_contact`.`destination`,
-                   `user_contact`.`user_id`
-            FROM `user`
-                JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`
-                JOIN `contact_mode` ON `contact_mode`.`id` = `user_contact`.`mode_id`
-            WHERE `user`.`id` IN %s"""
+            JOIN (SELECT `event`.`role_id`, `event`.`team_id`, MIN(`event`.`start` - UNIX_TIMESTAMP()) AS dist
+                  FROM `event` JOIN `team` ON `team`.`id` = `event`.`team_id`
+                  WHERE `start` > UNIX_TIMESTAMP() AND %s
+                  GROUP BY `event`.`role_id`, `event`.`team_id`) AS t1
+                ON `event`.`role_id` = `t1`.`role_id`
+                    AND `event`.`start` - UNIX_TIMESTAMP() = `t1`.dist
+                    AND `event`.`team_id` = `t1`.`team_id`"""
+            % team_where
+        )
+        # Execute the next query. Pass team_id as a parameter for the %s placeholder.
+        cursor.execute(next_query, team_id)
+        payload["next"] = defaultdict(list)
+        for event in cursor:
+            payload["next"][event["role"]].append(event)
+            users.add(event["user_id"])
 
-        cursor.execute(contacts_query, (users,))
-        contacts = cursor.fetchall()
+        if users:
+            # TODO: write a test for empty users
+            contacts_query = """
+                SELECT `contact_mode`.`name` AS `mode`,
+                       `user_contact`.`destination`,
+                       `user_contact`.`user_id`
+                FROM `user`
+                    JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`
+                    JOIN `contact_mode` ON `contact_mode`.`id` = `user_contact`.`mode_id`
+                WHERE `user`.`id` IN %s"""
 
-        for part in payload.values():
-            for event_list in part.values():
-                for event in event_list:
-                    event["user_contacts"] = dict(
-                        (c["mode"], c["destination"])
-                        for c in contacts
-                        if c["user_id"] == event["user_id"]
-                    )
+            # Pass the 'users' set as a tuple for the `IN %s` clause.
+            # The DBAPI driver will handle converting the tuple into the correct SQL list format.
+            cursor.execute(contacts_query, (tuple(users),))
+            contacts = cursor.fetchall()
 
-    cursor.close()
-    connection.close()
+            for part in payload.values():
+                for event_list in part.values():
+                    for event in event_list:
+                        event["user_contacts"] = dict(
+                            (c["mode"], c["destination"])
+                            for c in contacts
+                            if c["user_id"] == event["user_id"]
+                        )
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit cursor.close() and connection.close() are no longer needed.
+
+    # Continue processing after the 'with' block if needed, using the data
+    # collected while the connection was active.
     if override_num:
         try:
             for event in payload["current"]["primary"]:

@@ -437,7 +437,11 @@ def init(config: Dict[str, Any]) -> None:
 
         # --- Assign Connection Factory using the Wrapper ---
         # 'connect_factory' will create a new wrapper instance each time it's called
-        connect_factory = lambda: UnsafeContextualRawConnection(
+        # connect_factory = lambda: UnsafeContextualRawConnection(
+        #     db_engine.raw_connection
+        # )
+
+        connect_factory = lambda: ContextualRawConnection(
             db_engine.raw_connection
         )
 

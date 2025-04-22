@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import hmac
+import json
 import logging
 import sys
 from typing import Any, Dict
@@ -23,6 +24,123 @@ logger = logging.getLogger(__name__)
 
 
 class Authenticator:
+    def _get_secret_from_sm(
+        self,
+        secret_id: str,
+        region_name: str,
+        secret_key_in_json: str | None = None,
+    ) -> str:
+        """
+        Fetches a secret value from AWS Secrets Manager.
+
+        Args:
+            secret_id: The Name or ARN of the secret in Secrets Manager.
+            region_name: The AWS region where the secret resides.
+            secret_key_in_json: Optional key name if the secret value is a JSON string
+                                and you need a specific value from it.
+
+        Returns:
+            The secret value as a string.
+
+        Raises:
+            ValueError: If required arguments are missing or secret value is empty.
+            RuntimeError: If AWS API calls fail (e.g., secret not found, permissions).
+            JSONDecodeError: If secret_key_in_json is provided but SecretString is not valid JSON.
+            KeyError: If secret_key_in_json is provided but the key is not in the JSON secret.
+        """
+        if not secret_id or not region_name:
+            raise ValueError(
+                "Secret ID and region name are required to fetch from Secrets Manager."
+            )
+
+        try:
+            # Initialize Boto3 Secrets Manager client
+            secrets_client = boto3.client(
+                "secretsmanager", region_name=region_name
+            )
+            logger.info(
+                f"Secrets Manager client initialized for region {region_name}."
+            )
+
+            # Fetch the secret value
+            logger.debug(
+                f"Attempting to fetch secret value for SecretId: {secret_id}"
+            )
+            get_secret_value_response = secrets_client.get_secret_value(
+                SecretId=secret_id
+            )
+
+            secret_value = None
+            # Extract the secret string or binary
+            if "SecretString" in get_secret_value_response:
+                secret_value_raw = get_secret_value_response["SecretString"]
+                # If a specific key is requested, parse JSON
+                if secret_key_in_json:
+                    secret_data = json.loads(secret_value_raw)
+                    if secret_key_in_json in secret_data:
+                        secret_value = secret_data[secret_key_in_json]
+                        logger.info(
+                            f"Successfully retrieved and parsed secret from Secrets Manager JSON key '{secret_key_in_json}'."
+                        )
+                    else:
+                        raise KeyError(
+                            f"Key '{secret_key_in_json}' not found in the JSON secret stored in Secrets Manager ID '{secret_id}'."
+                        )
+                else:
+                    # Assume the entire string is the secret if no key specified
+                    secret_value = secret_value_raw
+                    logger.info(
+                        "Successfully retrieved secret as plain text from Secrets Manager."
+                    )
+
+            elif "SecretBinary" in get_secret_value_response:
+                # Handle binary secret if necessary, decode appropriately
+                logger.warning(
+                    "Retrieved secret is binary, attempting decode (assuming utf-8). Adjust if needed."
+                )
+                secret_value = base64.b64decode(
+                    get_secret_value_response["SecretBinary"]
+                ).decode("utf-8")
+                logger.info(
+                    "Successfully retrieved and decoded binary secret from Secrets Manager."
+                )
+            else:
+                raise ValueError(
+                    "Secrets Manager response did not contain SecretString or SecretBinary."
+                )
+
+            # Ensure we actually got a secret value
+            if not secret_value:
+                raise ValueError(
+                    f"Secret value retrieved from Secrets Manager ID '{secret_id}' is empty."
+                )
+
+            return secret_value
+
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            logger.error(
+                f"AWS Error fetching secret '{secret_id}': {error_code} - {e}",
+                exc_info=True,
+            )
+            if error_code == "ResourceNotFoundException":
+                raise RuntimeError(
+                    f"Secret '{secret_id}' not found in AWS Secrets Manager region {region_name}."
+                ) from e
+            elif error_code in [
+                "AccessDeniedException",
+                "UnrecognizedClientException",
+            ]:
+                raise RuntimeError(
+                    f"Permission denied fetching secret '{secret_id}'. Check IAM permissions and credentials."
+                ) from e
+            else:
+                # Raise a generic runtime error for other AWS issues
+                raise RuntimeError(
+                    f"Failed to retrieve secret from AWS Secrets Manager: {e}"
+                ) from e
+        # Let JSONDecodeError and KeyError propagate up naturally if they occur
+
     def __init__(self, config):
         """
         Initializes the Authenticator.
@@ -46,6 +164,9 @@ class Authenticator:
         self.user_pool_id = config.get("cognito_user_pool_id")
         self.app_client_id = config.get("cognito_app_client_id")
         self.app_client_secret = config.get("cognito_app_client_secret")
+        self.app_client_secret_sm_id = config.get(
+            "cognito_app_client_secret_sm_id"
+        )
 
         if not all([self.aws_region, self.user_pool_id, self.app_client_id]):
             logger.error(
@@ -54,6 +175,49 @@ class Authenticator:
             )
             # Raise an error or handle appropriately - preventing startup might be best
             raise ValueError("Incomplete Cognito configuration provided.")
+
+        if not self.app_client_secret_sm_id:
+            raise ValueError(
+                "Cognito App Client Secret ID ('cognito_app_client_secret_sm_id') not configured."
+            )
+
+        try:
+            # Call the helper method to fetch the secret
+            self.app_client_secret = self._get_secret_from_sm(
+                secret_id=self.app_client_secret_sm_id,
+                region_name=self.aws_region,
+                secret_key_in_json="value",
+            )
+
+            # Initialize Boto3 Cognito client ONLY after successfully getting the secret
+            self.cognito_client = boto3.client(
+                "cognito-idp", region_name=self.aws_region
+            )
+            logger.info(
+                f"Cognito client initialized for region {self.aws_region} and pool {self.user_pool_id}"
+            )
+            self.authenticate = (
+                self.cognito_auth
+            )  # Set the authentication method
+
+        except (ValueError, RuntimeError, KeyError, json.JSONDecodeError) as e:
+            # Catch errors from _get_secret_from_sm or client init
+            logger.error(
+                f"Failed to initialize authenticator: {e}", exc_info=True
+            )
+            # Re-raise as a RuntimeError to indicate fatal init failure
+            raise RuntimeError(
+                f"Failed to initialize authenticator: {e}"
+            ) from e
+        except Exception as e:
+            # Catch any other unexpected errors during init
+            logger.error(
+                f"An unexpected error occurred during authenticator initialization: {e}",
+                exc_info=True,
+            )
+            raise RuntimeError(
+                f"Failed to initialize authenticator: {e}"
+            ) from e
 
         try:
             # Initialize Boto3 Cognito client

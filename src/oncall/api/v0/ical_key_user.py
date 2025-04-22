@@ -42,7 +42,7 @@ def on_get(req, resp, user_name):
     if key is None:
         raise HTTPNotFound()
 
-    resp.body = key
+    resp.text = key
     resp.set_header("Content-Type", "text/plain")
 
 
@@ -69,7 +69,7 @@ def on_post(req, resp, user_name):
     update_ical_key(challenger, user_name, "user", key)
 
     resp.status = HTTP_201
-    resp.body = key
+    resp.text = key
     resp.set_header("Content-Type", "text/plain")
 
 

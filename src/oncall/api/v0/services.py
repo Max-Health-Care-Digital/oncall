@@ -79,7 +79,7 @@ def on_get(req, resp):
     data = [r[0] for r in cursor]
     cursor.close()
     connection.close()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @debug_only

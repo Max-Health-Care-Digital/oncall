@@ -285,7 +285,7 @@ def on_get(req, resp, team, roster):
     params["roster"] = roster
     data = get_schedules(params, fields=fields)
 
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 required_params = frozenset(["events", "role", "advanced_mode"])
@@ -481,4 +481,4 @@ def on_post(req, resp, team, roster):
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps({"id": schedule_id})
+    resp.text = json_dumps({"id": schedule_id})

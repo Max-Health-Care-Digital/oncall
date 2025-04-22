@@ -111,7 +111,7 @@ def index(req, resp):
         user = req.env.get("beaker.session", {}).get("user")
     if user is None and LOGIN_REQUIRED:
         resp.content_type = "text/html"
-        resp.body = jinja2_env.get_template("loginsplash.html").render()
+        resp.text = jinja2_env.get_template("loginsplash.html").render()
     else:
         from ..constants import SUPPORTED_TIMEZONES
 

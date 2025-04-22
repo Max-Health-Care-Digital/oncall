@@ -37,5 +37,5 @@ def on_get(req, resp, key):
             name, start, roles=roles, include_subscribed=True
         )
 
-    resp.body = ical.events_to_ical(events, name, contact=False)
+    resp.text = ical.events_to_ical(events, name, contact=False)
     resp.set_header("Content-Type", "text/calendar")

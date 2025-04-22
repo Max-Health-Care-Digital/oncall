@@ -247,4 +247,4 @@ def on_get(req, resp, team):
             # No current primary events exist, do nothing
             pass
 
-    resp.body = dumps(payload)
+    resp.text = dumps(payload)

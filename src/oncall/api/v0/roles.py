@@ -115,7 +115,7 @@ def on_get(req, resp):
         # when the 'with' block exits, even if an error occurs.
         # Explicit cursor.close() and connection.close() are no longer needed.
 
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @debug_only

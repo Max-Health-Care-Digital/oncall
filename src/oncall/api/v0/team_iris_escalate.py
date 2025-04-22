@@ -101,4 +101,4 @@ def on_post(req, resp, team):
             "Iris escalation failed", "Iris client error: %s" % e
         )
 
-    resp.body = str(incident_id)
+    resp.text = str(incident_id)

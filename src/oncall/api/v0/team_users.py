@@ -53,7 +53,7 @@ def on_get(req, resp, team):
     data = [r[0] for r in cursor]
     cursor.close()
     connection.close()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @login_required
@@ -98,4 +98,4 @@ def on_post(req, resp, team):
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps(get_user_data(None, {"name": user_name})[0])
+    resp.text = json_dumps(get_user_data(None, {"name": user_name})[0])

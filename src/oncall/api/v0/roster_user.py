@@ -84,7 +84,7 @@ def on_delete(req, resp, team, roster, user):
     cursor.close()
     connection.close()
     resp.status = HTTP_200
-    resp.body = "[]"
+    resp.text = "[]"
 
 
 @login_required
@@ -143,4 +143,4 @@ def on_put(req, resp, team, roster, user):
     cursor.close()
     connection.close()
     resp.status = HTTP_200
-    resp.body = "[]"
+    resp.text = "[]"

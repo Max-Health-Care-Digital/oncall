@@ -79,7 +79,7 @@ def on_get(req, resp, user_name):
     data = get_user_data(req.get_param_as_list("fields"), req.params)
     if not data:
         raise HTTPNotFound()
-    resp.body = json_dumps(data[0])
+    resp.text = json_dumps(data[0])
 
 
 @login_required

@@ -43,7 +43,7 @@ class HealthCheck(object):
                 logger.error("could not open healthcheck file")
                 raise HTTPNotFound()
         resp.content_type = "text/plain"
-        resp.body = status
+        resp.text = status
 
 
 def init(application, config):

@@ -90,4 +90,4 @@ def on_get(req, resp, team, roster, role):
     finally:
         cursor.close()
         connection.close()
-    resp.body = json_dumps({"user": candidate, "data": ret})
+    resp.text = json_dumps({"user": candidate, "data": ret})

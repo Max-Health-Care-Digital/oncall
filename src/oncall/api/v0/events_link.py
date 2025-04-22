@@ -168,4 +168,4 @@ def on_post(req, resp):
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps({"link_id": link_id, "event_ids": ev_ids})
+    resp.text = json_dumps({"link_id": link_id, "event_ids": ev_ids})

@@ -79,7 +79,7 @@ def on_get(req, resp, event_id):
     connection.close()
     if num_found == 0:
         raise HTTPNotFound()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @login_required

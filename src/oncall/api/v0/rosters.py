@@ -140,7 +140,7 @@ def on_get(req, resp, team):
 
     cursor.close()
     connection.close()
-    resp.body = json_dumps(rosters)
+    resp.text = json_dumps(rosters)
 
 
 @login_required

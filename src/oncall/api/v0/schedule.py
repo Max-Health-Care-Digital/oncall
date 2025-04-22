@@ -82,7 +82,7 @@ def on_get(req, resp, schedule_id):
             }
     """
 
-    resp.body = json_dumps(
+    resp.text = json_dumps(
         get_schedules(
             {"id": schedule_id}, fields=req.get_param_as_list("fields")
         )[0]

@@ -46,7 +46,7 @@ def on_get(req, resp, user_name):
         # when the 'with' block exits, even if an error occurs.
         # Explicit cursor.close() and connection.close() are no longer needed.
 
-    resp.body = json_dumps(teams)
+    resp.text = json_dumps(teams)
 
 
 @login_required

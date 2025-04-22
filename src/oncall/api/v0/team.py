@@ -191,7 +191,7 @@ def on_get(req, resp, team):
 
     cursor.close()
     connection.close()
-    resp.body = json_dumps(team_info)
+    resp.text = json_dumps(team_info)
 
 
 @login_required

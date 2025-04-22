@@ -27,7 +27,7 @@ def on_get(req, resp, team):
     data = [row for row in cursor]
     cursor.close()
     connection.close()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @login_required

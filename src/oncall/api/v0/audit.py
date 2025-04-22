@@ -90,4 +90,4 @@ def on_get(req, resp):
     results = cursor.fetchall()
     cursor.close()
     connection.close()
-    resp.body = json_dumps(results)
+    resp.text = json_dumps(results)

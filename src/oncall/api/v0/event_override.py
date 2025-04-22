@@ -239,7 +239,7 @@ def on_post(req, resp):
             req,
             cursor,
         )
-        resp.body = json_dumps(ret_data)
+        resp.text = json_dumps(ret_data)
     except HTTPError:
         raise
     else:

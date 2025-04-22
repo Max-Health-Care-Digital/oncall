@@ -228,7 +228,7 @@ def on_get(req, resp):
     data = cursor.fetchall()
     cursor.close()
     connection.close()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(data)
 
 
 @login_required
@@ -357,4 +357,4 @@ def on_post(req, resp):
         connection.close()
 
     resp.status = HTTP_201
-    resp.body = json_dumps(event_id)
+    resp.text = json_dumps(event_id)

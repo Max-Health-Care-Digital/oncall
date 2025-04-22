@@ -92,7 +92,7 @@ def on_get(req, resp, team, roster):
 
     cursor.close()
     connection.close()
-    resp.body = json_dumps({"users": users, "schedules": schedules})
+    resp.text = json_dumps({"users": users, "schedules": schedules})
 
 
 @login_required

@@ -198,7 +198,7 @@ def on_get(req, resp):
     """
     # on_get calls get_user_data, which now handles its own connection management
     # or uses a provided one (not the case here).
-    resp.body = json_dumps(
+    resp.text = json_dumps(
         get_user_data(req.get_param_as_list("fields"), req.params)
     )
 

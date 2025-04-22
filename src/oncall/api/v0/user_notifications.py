@@ -89,7 +89,7 @@ def on_get(req, resp, user_name):
 
     cursor.close()
     connection.close()
-    resp.body = json_dumps(list(data.values()))
+    resp.text = json_dumps(list(data.values()))
 
 
 @login_required
@@ -240,5 +240,5 @@ def on_post(req, resp, user_name):
     connection.commit()
     cursor.close()
     connection.close()
-    resp.body = json_dumps({"id": setting_id})
+    resp.text = json_dumps({"id": setting_id})
     resp.status = HTTP_201

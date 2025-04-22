@@ -19,7 +19,6 @@ from webassets.ext.jinja2 import AssetsExtension
 from webassets.script import CommandLineEnvironment
 
 from .. import auth
-from ..constants import SUPPORTED_TIMEZONES
 
 STATIC_ROOT = environ.get("STATIC_ROOT", path.abspath(path.dirname(__file__)))
 assets_env = AssetsEnvironment(path.join(STATIC_ROOT, "static"), url="/static")
@@ -114,8 +113,10 @@ def index(req, resp):
         resp.content_type = "text/html"
         resp.body = jinja2_env.get_template("loginsplash.html").render()
     else:
+        from ..constants import SUPPORTED_TIMEZONES
+
         resp.content_type = "text/html"
-        resp.body = jinja2_env.get_template("index.html").render(
+        resp.text = jinja2_env.get_template("index.html").render(
             user=user,
             slack_instance=SLACK_INSTANCE,
             user_setting_note=INDEX_CONTENT_SETTING["user_setting_note"],

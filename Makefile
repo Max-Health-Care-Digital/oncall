@@ -36,3 +36,7 @@ run: build
 
 compose:
 	docker compose up --build
+
+format:
+	isort .
+	black . -l 80

@@ -32,8 +32,8 @@ setuptools.setup(
     install_requires=[
         "falcon==3.1.1",
         "falcon-cors",
-        "greenlet==2.0.1",
-        "gevent==22.10.2",
+        "greenlet",
+        "gevent",
         "asn1crypto==1.0.0",
         "ujson",
         "markupsafe==2.0.1",
@@ -52,6 +52,7 @@ setuptools.setup(
         "icalendar",
         "pymsteams",
         "idna==2.10",
+        "boto3",
     ],
     extras_require={
         "ldap": ["python-ldap"],

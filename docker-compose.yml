@@ -10,18 +10,21 @@ services:
       - DOCKER_DB_BOOTSTRAP=1
       - IRIS_API_HOST=iris
     volumes:
-      - ./configs/config.docker.yaml:/home/oncall/config/config.yaml
+      - ./configs/config.yaml:/home/oncall/config/config.yaml
     networks:
       - iris
-  
+
   oncall-mysql:
-    hostname: oncall-mysql
-    image: mysql:5.7
+    hostname: oncall-mariadb
+    image: mariadb:latest
+    restart: always
+    ports:
+      - "3306:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=1234
+      - MARIADB_ROOT_PASSWORD=password
+      - MARIADB_DATABASE=digitaldb
     networks:
       - iris
 
 networks:
   iris:
-    name: iris

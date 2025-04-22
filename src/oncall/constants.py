@@ -32,12 +32,12 @@ URGENT = "urgent"
 MEDIUM = "medium"
 CUSTOM = "custom"
 
-DEFAULT_ROLES = None
-DEFAULT_MODES = None
-DEFAULT_TIMES = None
-GRACE_PERIOD = None
-
-SUPPORTED_TIMEZONES = None
+# DEFAULT_ROLES = None
+# DEFAULT_MODES = None
+# DEFAULT_TIMES = None
+# GRACE_PERIOD = None
+#
+# SUPPORTED_TIMEZONES = None
 
 
 def init(config):

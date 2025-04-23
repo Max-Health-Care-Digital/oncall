@@ -3,13 +3,14 @@ import operator
 import time
 from datetime import datetime, timedelta
 
-from falcon import HTTPBadRequest
+from falcon import HTTPBadRequest, HTTPInternalServerError
 from pytz import timezone, utc
 from ujson import dumps as json_dumps
 
 from oncall.utils import create_notification, gen_link_id
 
 from ..constants import EVENT_CREATED
+from .. import db
 
 logger = logging.getLogger()
 
@@ -17,25 +18,29 @@ UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=utc)
 SECONDS_IN_A_DAY = 24 * 60 * 60
 SECONDS_IN_A_WEEK = SECONDS_IN_A_DAY * 7
 
+# Alias 'temp_event' will be defined in the FROM clause of the query using this dict
+# Qualify columns from the main (aliased) table with 'temp_event.'
 columns = {
-    "id": "`temp_event`.`id` as `id`",
-    "start": "`temp_event`.`start` as `start`",
-    "end": "`temp_event`.`end` as `end`",
+    "id": "`temp_event`.`id` as `id`", # Qualify with alias
+    "start": "`temp_event`.`start` as `start`", # Qualify with alias
+    "end": "`temp_event`.`end` as `end`", # Qualify with alias
     "role": "`role`.`name` as `role`",
     "team": "`team`.`name` as `team`",
     "user": "`user`.`name` as `user`",
     "full_name": "`user`.`full_name` as `full_name`",
-    "schedule_id": "`temp_event`.`schedule_id`",
-    "link_id": "`temp_event`.`link_id`",
-    "note": "`temp_event`.`note`",
+    "schedule_id": "`temp_event`.`schedule_id` as `schedule_id`", # Qualify with alias
+    "link_id": "`temp_event`.`link_id` as `link_id`", # Qualify with alias
+    "note": "`temp_event`.`note` as `note`", # Qualify with alias
 }
 
+# Constraints need to refer to the aliased table name as well
 constraints = {
-    "start__lt": "`temp_event`.`start` < %s",
-    "end__ge": "`temp_event`.`end` >= %s",
-    "team__eq": "`team`.`name` = %s",
+    "start__lt": "`temp_event`.`start` < %s", # Qualify with alias
+    "end__ge": "`temp_event`.`end` >= %s", # Qualify with alias
+    "team__eq": "`team`.`name` = %s", # team.name is unambiguous here
 }
 
+# Rebuild all_columns string based on the updated dictionary values
 all_columns = ", ".join(columns.values())
 
 
@@ -492,54 +497,45 @@ class Scheduler(object):
     def build_preview_response(
         self, cursor, start__lt, end__ge, team__eq, table_name="temp_event"
     ):
-        # get existing events
+        """
+        Builds the JSON response for a schedule preview by querying the temporary table.
+        """
+        where_clause = []
+        where_vals = []
 
-        cols = all_columns
-        query = """SELECT %s FROM `%s`
-                JOIN `user` ON `user`.`id` = `%s`.`user_id`
-                JOIN `team` ON `team`.`id` = `%s`.`team_id`
-                JOIN `role` ON `role`.`id` = `%s`.`role_id`""" % (
-            cols,
-            table_name,
-            table_name,
-            table_name,
-            table_name,
-        )
-        where_params = [constraints["start__lt"], constraints["end__ge"]]
-        where_vals = [start__lt, end__ge]
+        # Build WHERE clause dynamically based on provided constraints
+        if start__lt is not None:
+            where_clause.append(constraints["start__lt"])
+            where_vals.append(start__lt)
+        if end__ge is not None:
+            where_clause.append(constraints["end__ge"])
+            where_vals.append(end__ge)
+        if team__eq is not None:
+            where_clause.append(constraints["team__eq"])
+            where_vals.append(team__eq)
 
-        # Deal with team subscriptions and team parameters
-        team_where = [constraints["team__eq"]]
-        subs_vals = [team__eq]
-        subs_and = " AND ".join(team_where)
-        cursor.execute(
-            """SELECT `subscription_id`, `role_id` FROM `team_subscription`
-                        JOIN `team` ON `team_id` = `team`.`id`
-                        WHERE %s"""
-            % subs_and,
-            subs_vals,
-        )
-        if cursor.rowcount != 0:
-            # Build where clause based on team params and subscriptions
-            subs_and = "(%s OR (%s))" % (
-                subs_and,
-                " OR ".join(
-                    [
-                        "`team`.`id` = %s AND `role`.`id` = %s"
-                        % (row["subscription_id"], row["role_id"])
-                        for row in cursor
-                    ]
-                ),
-            )
-        where_params.append(subs_and)
-        where_vals += subs_vals
+        if not where_clause:
+            raise ValueError("At least one constraint (start__lt, end__ge, team__eq) is required for preview.")
 
-        where_query = " AND ".join(where_params)
-        if where_query:
-            query = "%s WHERE %s" % (query, where_query)
-        cursor.execute(query, where_vals)
-        data = cursor.fetchall()
-        return json_dumps(data)
+        # Construct the query using the dynamic table name and alias 'temp_event'
+        # all_columns now uses qualified names like `temp_event`.`id`
+        query = f"""
+                SELECT {all_columns} FROM `{table_name}` AS `temp_event`
+                JOIN `user` ON `user`.`id` = `temp_event`.`user_id`
+                JOIN `team` ON `team`.`id` = `temp_event`.`team_id`
+                JOIN `role` ON `role`.`id` = `temp_event`.`role_id`
+                WHERE {' AND '.join(where_clause)}
+                ORDER BY `temp_event`.`start` ASC
+                """
+        logger.debug("Executing preview query: %s with values: %s", query, where_vals)
+        try:
+            cursor.execute(query, where_vals)
+            results = cursor.fetchall()
+            return json_dumps(results)
+        except db.Error as e:
+            logger.error(f"Error executing preview query: {e}\nQuery: {query}\nValues: {where_vals}", exc_info=True)
+            # Re-raise the original DB error or a more specific HTTP error
+            raise HTTPInternalServerError(title="Preview Query Failed", description=f"Database error during preview query execution: {e}")
 
     def populate(self, schedule, start_time, dbinfo, table_name="event"):
         connection, cursor = dbinfo

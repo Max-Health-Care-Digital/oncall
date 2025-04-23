@@ -6,7 +6,7 @@ from collections import defaultdict
 from falcon import HTTPNotFound
 from ujson import dumps
 
-from ... import db
+from ... import db  # Import the db module
 
 
 def on_get(req, resp, team):
@@ -38,97 +38,39 @@ def on_get(req, resp, team):
         Content-Type: application/json
 
         {
-            "current": {
-                "manager": [
-                    {
-                        "end": 1495760400,
-                        "full_name": "John Doe",
-                        "photo_url": "example.image.com",
-                        "role": "manager",
-                        "start": 1495436400,
-                        "user": "jdoe",
-                        "user_contacts": {
-                            "call": "+1 111-111-1111",
-                            "email": "jdoe@example.com",
-                            "im": "jdoe",
-                            "sms": "+1 111-111-1111"
-                        },
-                        "user_id": 1234
-                    }
-                ],
-                "primary": [
-                    {
-                        "end": 1495760400,
-                        "full_name": "Adam Smith",
-                        "photo_url": "example.image.com",
-                        "role": "primary",
-                        "start": 1495350000,
-                        "user": "asmith",
-                        "user_contacts": {
-                            "call": "+1 222-222-2222",
-                            "email": "asmith@example.com",
-                            "im": "asmith",
-                            "sms": "+1 222-222-2222"
-                        },
-                        "user_id": 1235
-                    }
-                ]
-            },
-            "next": {
-                "manager": [
-                    {
-                        "end": 1496127600,
-                        "full_name": "John Doe",
-                        "photo_url": "example.image.com",
-                        "role": "manager",
-                        "start": 1495436400,
-                        "user": "jdoe",
-                        "user_contacts": {
-                            "call": "+1 111-111-1111",
-                            "email": "jdoe@example.com",
-                            "im": "jdoe",
-                            "sms": "+1 111-111-1111"
-                        },
-                        "user_id": 1234
-                    }
-                ],
-                "primary": [
-                    {
-                        "end": 1495760400,
-                        "full_name": "Adam Smith",
-                        "photo_url": "example.image.com",
-                        "role": "primary",
-                        "start": 1495350000,
-                        "user": "asmith",
-                        "user_contacts": {
-                            "call": "+1 222-222-2222",
-                            "email": "asmith@example.com",
-                            "im": "asmith",
-                            "sms": "+1 222-222-2222"
-                        },
-                        "user_id": 1235
-                    }
-                ]
-            }
+            "current": { ... },
+            "next": { ... }
         }
 
     """
+    payload = {}
+    override_num = None
+    team_id = None
+    users = set()
+    contacts = []
+
     # Use the 'with' statement for safe connection management
     with db.connect() as connection:
         # Acquire a dictionary cursor from the connection wrapper
+        if not db.DictCursor:
+            # Raise a clearer error if DictCursor is essential and unavailable
+            raise RuntimeError(
+                "DictCursor is required but not available. Check DBAPI driver and db.init()."
+            )
         cursor = connection.cursor(db.DictCursor)
 
         cursor.execute(
             "SELECT `id`, `override_phone_number` FROM `team` WHERE `name` = %s",
-            team,
+            (team,),  # Pass parameters as a tuple
         )
         if cursor.rowcount < 1:
-            # Raise the exception within the 'with' block.
-            # The context manager will handle closing the connection.
-            raise HTTPNotFound()
+            raise HTTPNotFound(description=f"Team '{team}' not found")
+
         data = cursor.fetchone()
         team_id = data["id"]
         override_num = data["override_phone_number"]
+
+        # --- Current Query ---
         current_query = """
             SELECT `user`.`full_name` AS `full_name`,
                    `user`.`photo_url`,
@@ -142,42 +84,85 @@ def on_get(req, resp, team):
             JOIN `team` ON `event`.`team_id` = `team`.`id`
             JOIN `role` ON `role`.`id` = `event`.`role_id`
             WHERE UNIX_TIMESTAMP() BETWEEN `event`.`start` AND `event`.`end`"""
-        team_where = "`team`.`id` = %s"
+
+        # --- Build base WHERE clause and params for team/subscriptions ---
+        team_where_clause_base = "`team`.`id` = %s"
+        params = [team_id]  # Start parameter list with team_id
+
+        # Fetch subscriptions (using a separate cursor or reusing is fine)
+        # Reusing the main cursor here for simplicity
         cursor.execute(
             """SELECT `subscription_id`, `role_id` FROM `team_subscription`
-                          JOIN `team` ON `team_id` = `team`.`id`
-                          WHERE %s"""
-            % team_where,
-            team_id,
+                WHERE `team_id` = %s""",  # Parameterize the team_id here too
+            (team_id,),
+        )
+        subscriptions = cursor.fetchall()
+
+        team_where_sql = team_where_clause_base  # Start with the base clause
+        if subscriptions:
+            subscription_clauses = []
+            for row in subscriptions:
+                # Add placeholders and parameters for each subscription
+                subscription_clauses.append(
+                    "(`event`.`team_id` = %s AND `event`.`role_id` = %s)"
+                )
+                params.extend([row["subscription_id"], row["role_id"]])
+
+            # Combine the base team_where with the subscription clauses using OR
+            # Ensure event table alias is used for subscription part
+            team_where_sql = f"({team_where_clause_base} OR ({' OR '.join(subscription_clauses)}))"
+            # Note: params list already contains all necessary parameters in order
+
+        # Execute the current query
+        # Need to use `team_where_sql` but ensure table aliases match the query
+        # The 'current_query' joins 'team', so `team.id` is valid there.
+        # The subscription part uses `event.team_id`, also valid via JOINs.
+        # Let's adjust the generated team_where_sql to be safe for `current_query`:
+        current_team_where_sql = (
+            team_where_clause_base  # Start with base `team.id = %s`
+        )
+        current_params = [team_id]
+        if subscriptions:
+            current_subscription_clauses = []
+            for row in subscriptions:
+                current_subscription_clauses.append(
+                    "(`event`.`team_id` = %s AND `event`.`role_id` = %s)"
+                )
+                current_params.extend([row["subscription_id"], row["role_id"]])
+            # Use team.id for base, event.team_id for subscriptions
+            current_team_where_sql = f"({team_where_clause_base} OR ({' OR '.join(current_subscription_clauses)}))"
+
+        cursor.execute(
+            f"{current_query} AND ({current_team_where_sql})",
+            tuple(current_params),
         )
 
-        if cursor.rowcount != 0:
-            # Check conditions are true for either team OR subscriber
-            # Note: string formatting for the WHERE clause like this is generally
-            # less safe than parameterized queries, but maintaining existing logic.
-            # Ensure team_where is still using %s for the team_id parameter in the execute call.
-            team_where = "(%s OR (%s))" % (
-                team_where,
-                " OR ".join(
-                    [
-                        "`event`.`team_id` = %s AND `event`.`role_id` = %s"
-                        % (row["subscription_id"], row["role_id"])
-                        for row in cursor
-                    ]
-                ),
-            )
-
-        # Execute the current query. Pass team_id as a parameter for the %s placeholder.
-        cursor.execute(" AND ".join((current_query, team_where)), team_id)
-        payload = {}
-        users = set([])
         payload["current"] = defaultdict(list)
         for event in cursor:
             payload["current"][event["role"]].append(event)
             users.add(event["user_id"])
 
-        next_query = (
-            """
+        # --- Next Query ---
+        # Rebuild WHERE clause structure specifically for the subquery context
+        # Inside the subquery, both `team.id` and `event.team_id` are potentially available
+        subquery_team_where_clause_base = (
+            "`team`.`id` = %s"  # Use team.id as subquery joins team
+        )
+        subquery_params = [team_id]
+        subquery_team_where_sql = subquery_team_where_clause_base
+        if subscriptions:
+            subquery_subscription_clauses = []
+            for row in subscriptions:
+                # Use event.team_id here as it's clearer within the event context
+                subquery_subscription_clauses.append(
+                    "(`event`.`team_id` = %s AND `event`.`role_id` = %s)"
+                )
+                subquery_params.extend([row["subscription_id"], row["role_id"]])
+            subquery_team_where_sql = f"({subquery_team_where_clause_base} OR ({' OR '.join(subquery_subscription_clauses)}))"
+        # `subquery_params` now holds parameters for the subquery's WHERE clause.
+
+        # Construct the next_query WITHOUT the final erroneous WHERE clause
+        next_query = f"""
             SELECT `role`.`name` AS `role`,
                    `user`.`full_name` AS `full_name`,
                    `event`.`start`,
@@ -190,61 +175,69 @@ def on_get(req, resp, team):
             FROM `event`
             JOIN `role` ON `event`.`role_id` = `role`.`id`
             JOIN `user` ON `event`.`user_id` = `user`.`id`
+            JOIN (
+                SELECT `event`.`role_id`, `event`.`team_id`, MIN(`event`.`start` - UNIX_TIMESTAMP()) AS dist
+                FROM `event` JOIN `team` ON `team`.`id` = `event`.`team_id`
+                WHERE `start` > UNIX_TIMESTAMP() AND ({subquery_team_where_sql})  -- Inject the subquery where clause structure
+                GROUP BY `event`.`role_id`, `event`.`team_id`
+            ) AS t1
+              ON `event`.`role_id` = `t1`.`role_id`
+                 AND `event`.`start` - UNIX_TIMESTAMP() = `t1`.dist
+                 AND `event`.`team_id` = `t1`.`team_id`
+            -- REMOVED final WHERE clause here --
+        """
+        # Execute using only the parameters required for the subquery's WHERE clause
+        cursor.execute(
+            next_query, tuple(subquery_params)
+        )  # Use subquery_params
 
-            JOIN (SELECT `event`.`role_id`, `event`.`team_id`, MIN(`event`.`start` - UNIX_TIMESTAMP()) AS dist
-                  FROM `event` JOIN `team` ON `team`.`id` = `event`.`team_id`
-                  WHERE `start` > UNIX_TIMESTAMP() AND %s
-                  GROUP BY `event`.`role_id`, `event`.`team_id`) AS t1
-                ON `event`.`role_id` = `t1`.`role_id`
-                    AND `event`.`start` - UNIX_TIMESTAMP() = `t1`.dist
-                    AND `event`.`team_id` = `t1`.`team_id`"""
-            % team_where
-        )
-        # Execute the next query. Pass team_id as a parameter for the %s placeholder.
-        cursor.execute(next_query, team_id)
         payload["next"] = defaultdict(list)
         for event in cursor:
             payload["next"][event["role"]].append(event)
             users.add(event["user_id"])
 
+        # --- Contacts Query ---
         if users:
-            # TODO: write a test for empty users
-            contacts_query = """
+            placeholders = "%s"  # Single placeholder for the tuple
+
+            contacts_query = f"""
                 SELECT `contact_mode`.`name` AS `mode`,
                        `user_contact`.`destination`,
                        `user_contact`.`user_id`
                 FROM `user`
                     JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`
                     JOIN `contact_mode` ON `contact_mode`.`id` = `user_contact`.`mode_id`
-                WHERE `user`.`id` IN %s"""
+                WHERE `user`.`id` IN ({placeholders})"""
 
-            # Pass the 'users' set as a tuple for the `IN %s` clause.
-            # The DBAPI driver will handle converting the tuple into the correct SQL list format.
             cursor.execute(contacts_query, (tuple(users),))
             contacts = cursor.fetchall()
 
+            # Populate contacts
             for part in payload.values():
                 for event_list in part.values():
                     for event in event_list:
-                        event["user_contacts"] = dict(
-                            (c["mode"], c["destination"])
+                        event["user_contacts"] = {
+                            c["mode"]: c["destination"]
                             for c in contacts
                             if c["user_id"] == event["user_id"]
-                        )
+                        }
 
-        # The connection and cursor will be automatically closed/released
-        # when the 'with' block exits, even if an error occurs.
-        # Explicit cursor.close() and connection.close() are no longer needed.
+        # Connection released automatically by 'with' block exit
 
-    # Continue processing after the 'with' block if needed, using the data
-    # collected while the connection was active.
+    # --- Post-Connection Processing ---
     if override_num:
         try:
-            for event in payload["current"]["primary"]:
-                event["user_contacts"]["call"] = override_num
-                event["user_contacts"]["sms"] = override_num
+            if "primary" in payload.get("current", {}):
+                for event in payload["current"]["primary"]:
+                    if "user_contacts" in event:
+                        event["user_contacts"]["call"] = override_num
+                        event["user_contacts"]["sms"] = override_num
+                    else:
+                        event["user_contacts"] = {
+                            "call": override_num,
+                            "sms": override_num,
+                        }
         except KeyError:
-            # No current primary events exist, do nothing
-            pass
+            pass  # Maintain original behavior
 
     resp.text = dumps(payload)

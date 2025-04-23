@@ -13,6 +13,7 @@ from urllib.parse import quote
 
 import falcon
 from falcon import HTTPForbidden, HTTPUnauthorized, Request
+from falcon.errors import HTTPBadRequest
 
 # Assuming 'db' is correctly configured and provides connect/cursor methods
 # and appropriate exception types (like db.Error)
@@ -947,6 +948,12 @@ def _login_required_impl(function: Callable) -> Callable:
                     f"User auth failed for {function.__name__}: {e.title} - {e.description}"
                 )
                 raise e
+            except HTTPBadRequest as e:
+                # If user auth fails due to bad request, re-raise the specific error
+                logger.warning(
+                    f"User auth failed (bad request) for {function.__name__}: {e.title} - {e.description}"
+                )
+                raise e
             except Exception as e:
                 logger.error(
                     f"Unexpected error during user auth check in decorator for {function.__name__}: {e}",
@@ -954,7 +961,7 @@ def _login_required_impl(function: Callable) -> Callable:
                 )
                 raise HTTPUnauthorized(
                     title="Authentication Error",
-                    description="Unexpected error during user authentication.",
+                    description=f"Unexpected error during user authentication: {str(e)}",
                 )
 
     return wrapper

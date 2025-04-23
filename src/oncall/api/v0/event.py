@@ -15,7 +15,7 @@ from ...utils import (
     load_json_body,
     user_in_team_by_name,
 )
-from .events import all_columns, columns
+from .events import all_columns_select_clause, columns
 
 update_columns = {
     "start": "`start`=%(start)s",
@@ -60,7 +60,7 @@ def on_get(req, resp, event_id):
     :statuscode 404: Event not found
     """
     fields = req.get_param_as_list("fields", transform=columns.__getitem__)
-    cols = ", ".join(fields) if fields else all_columns
+    cols = ", ".join(fields) if fields else all_columns_select_clause
     query = (
         """SELECT %s FROM `event`
                JOIN `user` ON `user`.`id` = `event`.`user_id`

@@ -25,7 +25,7 @@ columns = {
     "contacts": (
         "`contact_mode`.`name` AS `mode`, "
         "`user_contact`.`destination` AS `destination`, "
-        "`user`.`id` AS `contact_id`" # Added contact_id here for easy lookup
+        "`user`.`id` AS `contact_id`"  # Added contact_id here for easy lookup
     ),
     "active": "`user`.`active` as `active`",
     "god": "`user`.`god` as `god`",
@@ -34,11 +34,13 @@ columns = {
 # Need all individual column names for the default SELECT list when no fields are specified
 # Excluding 'contacts' as it's a pseudo-column handled by joins
 all_select_columns = [columns[c] for c in columns if c != "contacts"]
-all_select_columns.extend([
-    "`contact_mode`.`name` AS `mode`",
-    "`user_contact`.`destination` AS `destination`",
-    "`user`.`id` AS `contact_id`"
-])
+all_select_columns.extend(
+    [
+        "`contact_mode`.`name` AS `mode`",
+        "`user_contact`.`destination` AS `destination`",
+        "`user`.`id` AS `contact_id`",
+    ]
+)
 all_columns_clause = ", ".join(all_select_columns)
 
 
@@ -61,7 +63,7 @@ constraints = {
     "full_name__startswith": '`user`.`full_name` LIKE CONCAT(%s, "%%")',
     "full_name__endswith": '`user`.`full_name` LIKE CONCAT("%%", %s)',
     "active": "`user`.`active` = %s",
-    "god": "`user`.`god` = %s", # Added god constraint based on columns list
+    "god": "`user`.`god` = %s",  # Added god constraint based on columns list
 }
 
 
@@ -78,7 +80,9 @@ def get_user_data(fields, filter_params, dbinfo=None):
         # Validate fields and build SELECT clause
         for f in fields:
             if f not in columns:
-                 raise HTTPBadRequest("Bad fields", f"Invalid field requested: {f}")
+                raise HTTPBadRequest(
+                    "Bad fields", f"Invalid field requested: {f}"
+                )
             if f == "contacts":
                 contacts_requested = True
             else:
@@ -86,7 +90,9 @@ def get_user_data(fields, filter_params, dbinfo=None):
     else:
         # Default to all columns including contacts
         contacts_requested = True
-        select_cols = [columns[c] for c in columns if c != "contacts"] # Add basic user columns
+        select_cols = [
+            columns[c] for c in columns if c != "contacts"
+        ]  # Add basic user columns
 
     # If contacts are requested or if fetching all columns (which includes contact join),
     # ensure the joins are in the FROM clause and add contact-specific select columns.
@@ -98,23 +104,28 @@ def get_user_data(fields, filter_params, dbinfo=None):
         contact_selects = [
             "`contact_mode`.`name` AS `mode`",
             "`user_contact`.`destination` AS `destination`",
-            "`user`.`id` AS `contact_id`"
+            "`user`.`id` AS `contact_id`",
         ]
         # Prevent duplicates if user.id was already requested
-        select_cols.extend([col for col in contact_selects if col not in select_cols])
-
+        select_cols.extend(
+            [col for col in contact_selects if col not in select_cols]
+        )
 
     # *** SECURITY FIX: Use parameterized queries for the WHERE clause ***
-    where_params_snippets = [] # e.g., "`user`.`name` = %s"
-    where_values = []          # e.g., ["jdoe"]
+    where_params_snippets = []  # e.g., "`user`.`name` = %s"
+    where_values = []  # e.g., ["jdoe"]
 
     for key, value in filter_params.items():
         if key in constraints:
             where_params_snippets.append(constraints[key])
-            where_values.append(value) # Append value directly, no escape needed here
+            where_values.append(
+                value
+            )  # Append value directly, no escape needed here
         # else: Ignore unknown filter parameters
 
-    where_clause = " AND ".join(where_params_snippets) if where_params_snippets else "1" # Use "1" for no WHERE conditions
+    where_clause = (
+        " AND ".join(where_params_snippets) if where_params_snippets else "1"
+    )  # Use "1" for no WHERE conditions
 
     # Construct the full query string
     # Ensure distinct users when joining contacts if only user fields requested
@@ -124,10 +135,10 @@ def get_user_data(fields, filter_params, dbinfo=None):
     # Let's build the query template using the collected select columns and where clause.
     query = f"SELECT {', '.join(select_cols)} FROM {from_clause}"
     if where_clause != "1":
-         query += f" WHERE {where_clause}"
+        query += f" WHERE {where_clause}"
 
     # *** Connection Management using 'with' or provided dbinfo ***
-    data = [] # Initialize data outside the conditional block
+    data = []  # Initialize data outside the conditional block
     # Use a flag to know if *this* function opened the connection
     connection_opened_here = False
 
@@ -138,43 +149,64 @@ def get_user_data(fields, filter_params, dbinfo=None):
             with db.connect() as connection:
                 cursor = connection.cursor(db.DictCursor)
                 # *** EXECUTE with parameters ***
-                cursor.execute(query, where_values) # Pass values as the second argument
+                print("--- Executing SQL Query ---")
+                print(query)
+                print("--- With Parameters ---")
+                print(where_values)
+                print("-------------------------")
+                cursor.execute(
+                    query, where_values
+                )  # Pass values as the second argument
                 data = cursor.fetchall()
             # Connection and cursor are automatically closed by the 'with' block
         except Exception as e:
             # Log or handle exceptions during DB interaction
-            print(f"Error in get_user_data (connection opened here): {e}") # Replace with proper logging
-            raise # Re-raise the exception for the caller (on_get) to handle
+            print(
+                f"Error in get_user_data (connection opened here): {e}"
+            )  # Replace with proper logging
+            raise  # Re-raise the exception for the caller (on_get) to handle
     else:
         # Use the provided connection and cursor
         connection, cursor = dbinfo
         try:
             # *** EXECUTE with parameters ***
-            cursor.execute(query, where_values) # Pass values as the second argument
+            cursor.execute(
+                query, where_values
+            )  # Pass values as the second argument
             data = cursor.fetchall()
             # Do NOT close connection/cursor here, they are managed by the caller (dbinfo provider)
         except Exception as e:
             # Log or handle exceptions during DB interaction
-            print(f"Error in get_user_data (using provided connection): {e}") # Replace with proper logging
+            print(
+                f"Error in get_user_data (using provided connection): {e}"
+            )  # Replace with proper logging
             # The caller's context manager will handle rollback/cleanup
-            raise # Re-raise the exception
-
+            raise  # Re-raise the exception
 
     # Format contact info (This part remains largely the same, but operates on 'data')
     if contacts_requested:
         # end result accumulator
         ret = {}
         for row in data:
-            user_id = row.get("contact_id") # Use .get for safety if column name changes
+            print(f"{row = }")
+            user_id = row.get(
+                "contact_id"
+            )  # Use .get for safety if column name changes
             # ensure contact_id is present, skip rows if not (shouldn't happen with correct join/select)
             if user_id is None:
-                 print(f"Warning: Row missing contact_id: {row}") # Log unexpected data
-                 continue
+                print(
+                    f"Warning: Row missing contact_id: {row}"
+                )  # Log unexpected data
+                continue
 
             # add data row into accumulator only if not already there
             if user_id not in ret:
                 # Copy necessary fields, excluding raw contact details
-                user_row = {k: v for k, v in row.items() if k not in ["mode", "destination", "contact_id"]}
+                user_row = {
+                    k: v
+                    for k, v in row.items()
+                    if k not in ["mode", "destination", "contact_id"]
+                }
                 ret[user_id] = user_row
                 ret[user_id]["contacts"] = {}
 
@@ -213,7 +245,11 @@ def on_post(req, resp):
     new_user_name = data.get("name")
     if new_user_name is None:
         # Raise a bad request if name is missing
-        raise HTTPError("400 Bad Request", "Missing Parameter", "Missing 'name' in request body")
+        raise HTTPError(
+            "400 Bad Request",
+            "Missing Parameter",
+            "Missing 'name' in request body",
+        )
 
     # Use the 'with' statement for safe connection and transaction management
     # The ContextualRawConnection will handle rollback if an exception occurs
@@ -222,7 +258,10 @@ def on_post(req, resp):
         cursor = connection.cursor()
         try:
             # Use the specific parameter name defined in the query (%(name)s)
-            cursor.execute("INSERT INTO `user` (`name`) VALUES (%(name)s)", {'name': new_user_name})
+            cursor.execute(
+                "INSERT INTO `user` (`name`) VALUES (%(name)s)",
+                {"name": new_user_name},
+            )
             # Commit the transaction explicitly on success
             connection.commit()
         except db.IntegrityError as e:
@@ -233,8 +272,11 @@ def on_post(req, resp):
                 # Format the error message using the actual name attempted
                 err_msg = f'user name "{new_user_name}" already exists'
             # Re-raise the exception after formatting the error message
-            raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg) from e
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
         # The connection and cursor are automatically closed/released by the 'with' statement
         # No need for a finally block to close connection/cursor anymore.
 
     resp.status = HTTP_201
+

@@ -31,19 +31,35 @@ def on_get(req, resp, user_name):
             "team-bar"
         ]
     """
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute("SELECT `id` FROM `user` WHERE `name` = %s", user_name)
-    if cursor.rowcount < 1:
-        raise HTTPNotFound()
-    user_id = cursor.fetchone()[0]
-    cursor.execute(
-        """SELECT `team`.`name` FROM `team`
-                      JOIN `team_user` ON `team_user`.`team_id` = `team`.`id`
-                      WHERE `team_user`.`user_id` = %s AND `team`.`active` = TRUE""",
-        user_id,
-    )
-    data = [r[0] for r in cursor]
-    cursor.close()
-    connection.close()
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+        # Execute the first query to get the user ID
+        cursor.execute("SELECT `id` FROM `user` WHERE `name` = %s", user_name)
+
+        # Check rowcount within the with block
+        if cursor.rowcount < 1:
+             # Raise HTTPNotFound within the with block. The context manager
+             # will handle closing the connection even when an exception is raised.
+             raise HTTPNotFound(description=f"User '{user_name}' not found")
+
+        # Fetch the user ID
+        user_id = cursor.fetchone()[0]
+
+        # Execute the second query using the fetched user_id
+        cursor.execute(
+            """SELECT `team`.`name` FROM `team`
+                          JOIN `team_user` ON `team_user`.`team_id` = `team`.`id`
+                          WHERE `team_user`.`user_id` = %s AND `team`.`active` = TRUE""",
+            user_id,
+        )
+
+        # Fetch the data into a list
+        data = [r[0] for r in cursor]
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit cursor.close() and connection.close() are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'data'
     resp.text = dumps(data)

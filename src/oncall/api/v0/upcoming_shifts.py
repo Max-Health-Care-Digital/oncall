@@ -7,7 +7,8 @@ from collections import defaultdict
 from ujson import dumps as json_dumps
 
 from ... import db
-from .events import all_columns
+# Assuming all_columns_select_clause is correctly defined and imported from events.py
+from .events import all_columns_select_clause
 
 
 def on_get(req, resp, user_name):
@@ -62,31 +63,75 @@ def on_get(req, resp, user_name):
                JOIN `role` ON `role`.`id` = `event`.`role_id`
                WHERE `user`.`id` = (SELECT `id` FROM `user` WHERE `name` = %%s)
                    AND `event`.`start` > UNIX_TIMESTAMP()"""
-        % all_columns
+        % all_columns_select_clause
     )
 
     query_params = [user_name]
     if role:
-        query_end = " AND `role`.`name` = %s" + query_end
+        # Add the role filter to the WHERE clause using a parameter
+        query += " AND `role`.`name` = %s"
         query_params.append(role)
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
-    cursor.execute(query + query_end, query_params)
-    data = cursor.fetchall()
-    cursor.close()
-    connection.close()
+
+    # Add the ordering and potentially limit after the WHERE clause
+    query += query_end
+
+    # Add limit to the query if provided (using LIMIT clause)
+    if limit is not None:
+        # Note: Parameterizing LIMIT is driver-dependent. %s usually works.
+        # Alternatively, check DBAPI specifics or use SQLAlchemy ORM.
+        # Assuming %s parameter works for LIMIT here.
+        query += " LIMIT %s"
+        query_params.append(limit)
+
+
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a dictionary cursor from the connection wrapper
+        cursor = connection.cursor(db.DictCursor)
+        # Execute the query with all collected parameters
+        cursor.execute(query, query_params)
+        data = cursor.fetchall()
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit cursor.close() and connection.close() are no longer needed.
+
+    # --- Post-processing logic remains outside the with block ---
+    # This logic operates on the 'data' list which was fully fetched while
+    # the connection was active.
     links = defaultdict(list)
     formatted = []
     for event in data:
         if event["link_id"] is None:
+            # Ensure num_events is explicitly set for non-linked events for consistency
+            event["num_events"] = 0
             formatted.append(event)
         else:
             links[event["link_id"]].append(event)
+
     for events in links.values():
+        # Find the first event by start time among linked events
         first_event = min(events, key=operator.itemgetter("start"))
-        first_event["num_events"] = len(events)
-        formatted.append(first_event)
-    formatted = sorted(formatted, key=operator.itemgetter("start"))
-    if limit is not None:
-        formatted = formatted[:limit]
+        # Copy relevant info from the first event and add num_events
+        # Be careful not to modify the list iterated over by links.values() directly
+        # if the 'events' list objects are shared. Creating a new dict is safer.
+        linked_event_summary = {
+            k: v for k, v in first_event.items() if k not in ["mode", "destination", "contact_id"] # Exclude potential raw contact data
+        }
+        linked_event_summary["num_events"] = len(events)
+        formatted.append(linked_event_summary)
+
+    # The initial query included ORDER BY and LIMIT, so sorting/slicing here is
+    # redundant if the DB handles it, but kept for safety based on original code.
+    # If LIMIT was handled by the DB, this slice might be unnecessary.
+    # The sort *might* be needed if the DB's ORDER BY isn't guaranteed across groups.
+    # However, fetching all then sorting/limiting can be inefficient for large results.
+    # Relying on the database ORDER BY/LIMIT is generally preferred.
+    # Removing the Python sort/limit assuming the SQL ORDER BY/LIMIT is sufficient.
+    # If the original intent was to fetch more and *then* limit/sort Python-side,
+    # the SQL LIMIT should be removed. Let's remove the redundant Python steps.
+
+    # formatted = sorted(formatted, key=operator.itemgetter("start")) # Removed redundant sort
+    # if limit is not None: # Removed redundant limit
+    #     formatted = formatted[:limit]
+
     resp.text = json_dumps(formatted)

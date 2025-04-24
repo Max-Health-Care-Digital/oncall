@@ -10,6 +10,7 @@ from ... import db
 from ...auth import check_team_auth, login_required
 from ...constants import ROSTER_CREATED
 from ...utils import create_audit, invalid_char_reg, load_json_body
+
 # Assuming get_schedules is refactored to optionally use a provided connection/cursor (via dbinfo)
 # or handle its own connection correctly when none is provided.
 from .schedules import get_schedules
@@ -54,8 +55,7 @@ def get_roster_by_team_id(cursor, team_id, params=None):
         # If it's only for schedules, this block is unused for the roster query.
         # Let's assume params are only for the schedules query for now as per original structure implicitly
         # If roster filters are needed, the constraints dict needs keys for roster fields.
-        pass # No roster-specific params handled here based on the original
-
+        pass  # No roster-specific params handled here based on the original
 
     # Always filter by team_id for the initial roster fetch
     # The constraints dict provided seems geared towards schedule filters.
@@ -74,7 +74,7 @@ def get_roster_by_team_id(cursor, team_id, params=None):
 
     # Fetch roster names and ids to initialize the dictionary
     rosters = {}
-    roster_rows = cursor.fetchall() # Fetch all roster rows first
+    roster_rows = cursor.fetchall()  # Fetch all roster rows first
     for row in roster_rows:
         rosters[row["name"]] = {"users": [], "schedules": [], "id": row["id"]}
 
@@ -85,7 +85,9 @@ def get_roster_by_team_id(cursor, team_id, params=None):
 
     # get users for each roster
     # Use IN clause filter on roster IDs found
-    roster_ids = tuple(r["id"] for r in rosters.values()) # Get IDs from the rosters found
+    roster_ids = tuple(
+        r["id"] for r in rosters.values()
+    )  # Get IDs from the rosters found
 
     query_users = """SELECT `roster`.`name` AS `roster`,
                       `user`.`name` AS `user`,
@@ -93,35 +95,45 @@ def get_roster_by_team_id(cursor, team_id, params=None):
                FROM `roster_user`
                JOIN `roster` ON `roster_user`.`roster_id`=`roster`.`id`
                JOIN `user` ON `roster_user`.`user_id`=`user`.`id`
-               WHERE `roster_user`.`roster_id` IN %s""" # Filter on roster_user.roster_id is more direct
+               WHERE `roster_user`.`roster_id` IN %s"""  # Filter on roster_user.roster_id is more direct
 
-    print(f"get_roster_by_team_id: Roster users query (template): {query_users}")
-    print(f"get_roster_by_team_id: Roster users query (values): {(roster_ids,)}")
+    print(
+        f"get_roster_by_team_id: Roster users query (template): {query_users}"
+    )
+    print(
+        f"get_roster_by_team_id: Roster users query (values): {(roster_ids,)}"
+    )
 
     # Execute the users query using the provided cursor and parameterized IN clause
-    cursor.execute(query_users, (roster_ids,)) # Pass as a tuple containing the tuple of IDs
+    cursor.execute(
+        query_users, (roster_ids,)
+    )  # Pass as a tuple containing the tuple of IDs
 
     # Populate users for each roster
-    user_rows = cursor.fetchall() # Fetch all user rows
+    user_rows = cursor.fetchall()  # Fetch all user rows
     for row in user_rows:
-        if row["roster"] in rosters: # Defensive check - roster name should exist
-             rosters[row["roster"]]["users"].append(
-                 {"name": row["user"], "in_rotation": bool(row["in_rotation"])}
-             )
+        if (
+            row["roster"] in rosters
+        ):  # Defensive check - roster name should exist
+            rosters[row["roster"]]["users"].append(
+                {"name": row["user"], "in_rotation": bool(row["in_rotation"])}
+            )
         else:
-             # This shouldn't happen if the join and ID filtering are correct, but can log
-             print(f"Warning: Roster user found for unexpected roster name: {row['roster']}")
-
+            # This shouldn't happen if the join and ID filtering are correct, but can log
+            print(
+                f"Warning: Roster user found for unexpected roster name: {row['roster']}"
+            )
 
     # get all schedules for the team by CALLING get_schedules
     # *** Pass the existing connection and cursor via dbinfo ***
     schedule_data = get_schedules(
         filter_params={"team_id": team_id},
-        dbinfo=(connection, cursor), # Pass the existing connection and cursor
-        fields=None # Or specify the fields needed for schedules if not all
+        dbinfo=(connection, cursor),  # Pass the existing connection and cursor
+        fields=None,  # Or specify the fields needed for schedules if not all
     )
-    print(f"get_roster_by_team_id: Received {len(schedule_data)} schedules from get_schedules.")
-
+    print(
+        f"get_roster_by_team_id: Received {len(schedule_data)} schedules from get_schedules."
+    )
 
     # Populate schedules for each roster from the schedule_data
     for schedule in schedule_data:
@@ -134,6 +146,7 @@ def get_roster_by_team_id(cursor, team_id, params=None):
     # No close() needed here, the connection/cursor are managed by the caller of get_roster_by_team_id.
     return rosters
 
+
 def on_get(req, resp, team):
     """
     Get roster info for a team. Returns a JSON object with roster names
@@ -143,7 +156,7 @@ def on_get(req, resp, team):
 
     ... (docstring remains the same) ...
     """
-    team_name = unquote(team) # Renamed variable
+    team_name = unquote(team)  # Renamed variable
 
     # Use the 'with' statement for safe connection management
     with db.connect() as connection:
@@ -151,15 +164,17 @@ def on_get(req, resp, team):
         cursor = connection.cursor(db.DictCursor)
 
         # Execute the query to get the team ID
-        cursor.execute("SELECT `id` FROM `team` WHERE `name`=%s", (team_name,)) # Parameterize team_name
+        cursor.execute(
+            "SELECT `id` FROM `team` WHERE `name`=%s", (team_name,)
+        )  # Parameterize team_name
 
         # Check results and raise HTTPNotFound within the with block
         # Using rowcount != 1 check from original code
-        if cursor.rowcount == 0: # Team not found
+        if cursor.rowcount == 0:  # Team not found
             raise HTTPError(
-                "422 Unprocessable Entity", # Keep original status code
-                "IntegrityError", # Keep original type
-                f'team "{team_name}" not found', # Use f-string for clarity
+                "422 Unprocessable Entity",  # Keep original status code
+                "IntegrityError",  # Keep original type
+                f'team "{team_name}" not found',  # Use f-string for clarity
             )
         # If rowcount > 1, something is wrong, but fetchone will get the first
         # The original code didn't explicitly handle > 1, so we won't add that check here.
@@ -185,40 +200,45 @@ def on_post(req, resp, team):
 
     ... (docstring remains the same) ...
     """
-    team_name = unquote(team) # Renamed variable
+    team_name = unquote(team)  # Renamed variable
     data = load_json_body(req)
 
-    roster_name = data.get("name") # Use .get
+    roster_name = data.get("name")  # Use .get
     if not roster_name:
-        raise HTTPBadRequest("Missing Parameter", "name attribute missing or empty from request")
+        raise HTTPBadRequest(
+            "Missing Parameter", "name attribute missing or empty from request"
+        )
 
     invalid_char = invalid_char_reg.search(roster_name)
     if invalid_char:
         raise HTTPBadRequest(
             "invalid roster name",
-            f'roster name contains invalid character "{invalid_char.group()}"', # Use f-string
+            f'roster name contains invalid character "{invalid_char.group()}"',  # Use f-string
         )
 
-    check_team_auth(team_name, req) # Use team_name
+    check_team_auth(team_name, req)  # Use team_name
 
     # Use the 'with' statement for safe connection and transaction management
     with db.connect() as connection:
         # Acquire a standard cursor (original used standard cursor)
-        cursor = connection.cursor() # Using standard cursor as in original
+        cursor = connection.cursor()  # Using standard cursor as in original
 
         try:
             # Insert into roster table
             cursor.execute(
                 """INSERT INTO `roster` (`name`, `team_id`)
                           VALUES (%s, (SELECT `id` FROM `team` WHERE `name`=%s))""",
-                (roster_name, team_name), # Parameterize roster_name and team_name
+                (
+                    roster_name,
+                    team_name,
+                ),  # Parameterize roster_name and team_name
             )
 
             # Create audit trail entry using the same cursor
             # Assuming create_audit takes a cursor and handles DB ops within it
             create_audit(
                 {"roster_id": cursor.lastrowid, "request_body": data},
-                team_name, # Use team_name
+                team_name,  # Use team_name
                 ROSTER_CREATED,
                 req,
                 cursor,
@@ -234,16 +254,18 @@ def on_post(req, resp, team):
             # Check for specific IntegrityError messages
             if "Duplicate entry" in err_msg:
                 # Duplicate roster name within the team
-                 err_msg = f'roster name "{roster_name}" already exists for team "{team_name}"'
+                err_msg = f'roster name "{roster_name}" already exists for team "{team_name}"'
             elif "Column 'team_id' cannot be null" in err_msg:
-                 # Team not found in the subquery
-                 err_msg = f'team "{team_name}" not found'
+                # Team not found in the subquery
+                err_msg = f'team "{team_name}" not found'
             else:
-                 # Generic fallback for other integrity errors
-                 err_msg = f"Database Integrity Error: {err_msg}"
+                # Generic fallback for other integrity errors
+                err_msg = f"Database Integrity Error: {err_msg}"
 
             # Re-raise the exception after formatting the error message
-            raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg) from e
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
         # Do not need a finally block to close connection/cursor; the 'with' statement handles it.
         # Any other exception raised in the try block will also trigger rollback and cleanup.
 

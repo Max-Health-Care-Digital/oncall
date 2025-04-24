@@ -7,6 +7,7 @@ from collections import defaultdict
 from ujson import dumps as json_dumps
 
 from ... import db
+
 # Assuming all_columns_select_clause is correctly defined and imported from events.py
 from .events import all_columns_select_clause
 
@@ -83,7 +84,6 @@ def on_get(req, resp, user_name):
         query += " LIMIT %s"
         query_params.append(limit)
 
-
     # Use the 'with' statement for safe connection management
     with db.connect() as connection:
         # Acquire a dictionary cursor from the connection wrapper
@@ -115,7 +115,14 @@ def on_get(req, resp, user_name):
         # Be careful not to modify the list iterated over by links.values() directly
         # if the 'events' list objects are shared. Creating a new dict is safer.
         linked_event_summary = {
-            k: v for k, v in first_event.items() if k not in ["mode", "destination", "contact_id"] # Exclude potential raw contact data
+            k: v
+            for k, v in first_event.items()
+            if k
+            not in [
+                "mode",
+                "destination",
+                "contact_id",
+            ]  # Exclude potential raw contact data
         }
         linked_event_summary["num_events"] = len(events)
         formatted.append(linked_event_summary)

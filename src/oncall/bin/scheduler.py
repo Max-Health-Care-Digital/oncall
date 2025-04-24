@@ -76,7 +76,11 @@ def main():
                         for schedule in team_schedules:
                             # Ensure 'scheduler' key exists and has a 'name' subkey
                             scheduler_info = schedule.get("scheduler", {})
-                            scheduler_name = scheduler_info.get("name") if isinstance(scheduler_info, dict) else None
+                            scheduler_name = (
+                                scheduler_info.get("name")
+                                if isinstance(scheduler_info, dict)
+                                else None
+                            )
 
                             if scheduler_name and scheduler_name in schedulers:
                                 schedule_map[scheduler_name].append(schedule)
@@ -89,8 +93,13 @@ def main():
                                     f"Schedule {schedule.get('id')} has missing or invalid scheduler information. Skipping."
                                 )
 
-                        for scheduler_name, schedules_list in schedule_map.items():
-                            if schedules_list: # Only run if there are schedules
+                        for (
+                            scheduler_name,
+                            schedules_list,
+                        ) in schedule_map.items():
+                            if (
+                                schedules_list
+                            ):  # Only run if there are schedules
                                 # Pass connection and cursor via dbinfo tuple
                                 # The schedule method handles its own commit/rollback within the transaction
                                 schedulers[scheduler_name].schedule(
@@ -129,28 +138,39 @@ def main():
         elapsed = time.time() - start
         sleep_time = cycle_time - elapsed
         if sleep_time > 0:
-            logger.info("Scheduling cycle finished in %.2f seconds. Sleeping for %.2f seconds", elapsed, sleep_time)
+            logger.info(
+                "Scheduling cycle finished in %.2f seconds. Sleeping for %.2f seconds",
+                elapsed,
+                sleep_time,
+            )
             time.sleep(sleep_time)
         else:
             logger.warning(
                 "Scheduling cycle took %.2f seconds (longer than cycle time %s), skipping sleep",
-                elapsed, cycle_time
+                elapsed,
+                cycle_time,
             )
 
 
 if __name__ == "__main__":
     # Setup logging (moved from global scope to ensure it runs when script is executed)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
     log_file = os.environ.get("SCHEDULER_LOG_FILE")
     if log_file:
         # Use TimedRotatingFileHandler for better rotation based on time
-        ch = logging.handlers.TimedRotatingFileHandler(log_file, when='midnight', backupCount=10)
+        ch = logging.handlers.TimedRotatingFileHandler(
+            log_file, when="midnight", backupCount=10
+        )
     else:
         ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(formatter)
     # Configure root logger
     logging.basicConfig(level=logging.INFO, handlers=[ch])
     # Get logger for this module
-    logger = logging.getLogger(__name__) # Use __name__ for module-specific logger
+    logger = logging.getLogger(
+        __name__
+    )  # Use __name__ for module-specific logger
 
     main()

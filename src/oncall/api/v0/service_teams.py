@@ -29,16 +29,23 @@ def on_get(req, resp, service):
             "team-foo"
         ]
     """
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(
-        """SELECT `team`.`name` FROM `service`
-                      JOIN `team_service` ON `team_service`.`service_id`=`service`.`id`
-                      JOIN `team` ON `team`.`id`=`team_service`.`team_id`
-                      WHERE `service`.`name`=%s""",
-        service,
-    )
-    data = [r[0] for r in cursor]
-    cursor.close()
-    connection.close()
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a standard cursor
+        cursor = connection.cursor()
+        cursor.execute(
+            """SELECT `team`.`name` FROM `service`
+                          JOIN `team_service` ON `team_service`.`service_id`=`service`.`id`
+                          JOIN `team` ON `team`.`id`=`team_service`.`team_id`
+                          WHERE `service`.`name`=%s""",
+            (service,),  # Parameterize service name as a tuple
+        )
+        # Fetch the data
+        data = [r[0] for r in cursor]
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit close calls are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'data' list
     resp.text = dumps(data)

@@ -779,4 +779,3 @@ def on_post(req, resp, team, roster):
     # If successful, return 201 Created with the new ID
     resp.status = HTTP_201
     resp.text = json_dumps({"id": schedule_id})
-

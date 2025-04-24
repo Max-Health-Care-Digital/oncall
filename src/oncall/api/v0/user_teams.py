@@ -39,9 +39,9 @@ def on_get(req, resp, user_name):
 
         # Check rowcount within the with block
         if cursor.rowcount < 1:
-             # Raise HTTPNotFound within the with block. The context manager
-             # will handle closing the connection even when an exception is raised.
-             raise HTTPNotFound(description=f"User '{user_name}' not found")
+            # Raise HTTPNotFound within the with block. The context manager
+            # will handle closing the connection even when an exception is raised.
+            raise HTTPNotFound(description=f"User '{user_name}' not found")
 
         # Fetch the user ID
         user_id = cursor.fetchone()[0]

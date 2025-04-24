@@ -1,8 +1,8 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-import operator # operator imported but not used?
-from collections import defaultdict # defaultdict imported but not used?
+import operator  # operator imported but not used?
+from collections import defaultdict  # defaultdict imported but not used?
 from urllib.parse import unquote
 
 from falcon import HTTP_201, HTTPBadRequest, HTTPError
@@ -67,13 +67,15 @@ def on_get(req, resp):
     query_template = "SELECT `name`, `id` FROM `team`"
 
     # Build WHERE clause using parameterized query placeholders
-    where_params_snippets = [] # e.g., "`team`.`name` = %s"
-    query_values = []          # e.g., ["my-team"]
+    where_params_snippets = []  # e.g., "`team`.`name` = %s"
+    query_values = []  # e.g., ["my-team"]
 
     # Default active=True if not specified
     if "active" not in req.params:
         where_params_snippets.append(constraints["active"])
-        query_values.append(True) # Assuming boolean True/False maps correctly to DB boolean/int type
+        query_values.append(
+            True
+        )  # Assuming boolean True/False maps correctly to DB boolean/int type
 
     # Process other filter parameters
     for key, value in req.params.items():
@@ -85,14 +87,17 @@ def on_get(req, resp):
 
         if key in constraints:
             where_params_snippets.append(constraints[key])
-            query_values.append(value) # Add value directly for parameterization
+            query_values.append(
+                value
+            )  # Add value directly for parameterization
         # else: Ignore unknown parameters
 
-    where_clause = " AND ".join(where_params_snippets) if where_params_snippets else "1" # Use "1" for no WHERE conditions
+    where_clause = (
+        " AND ".join(where_params_snippets) if where_params_snippets else "1"
+    )  # Use "1" for no WHERE conditions
 
     # Combine query template and WHERE clause
     query = f"{query_template} WHERE {where_clause}"
-
 
     # Use the 'with' statement for safe connection management
     with db.connect() as connection:
@@ -129,12 +134,18 @@ def on_post(req, resp):
     """
 
     data = load_json_body(req)
-    team_name = unquote(data.get("name", "")).strip() # Use .get and handle empty string
-    scheduling_timezone = unquote(data.get("scheduling_timezone", "")) # Use .get
+    team_name = unquote(
+        data.get("name", "")
+    ).strip()  # Use .get and handle empty string
+    scheduling_timezone = unquote(
+        data.get("scheduling_timezone", "")
+    )  # Use .get
 
     # Basic validation checks before connecting to DB
     if not team_name:
-        raise HTTPBadRequest("Missing Parameter", "name attribute missing or empty from request")
+        raise HTTPBadRequest(
+            "Missing Parameter", "name attribute missing or empty from request"
+        )
     invalid_char = invalid_char_reg.search(team_name)
     if invalid_char:
         raise HTTPBadRequest(
@@ -144,7 +155,8 @@ def on_post(req, resp):
 
     if not scheduling_timezone:
         raise HTTPBadRequest(
-            "Missing Parameter", "scheduling_timezone attribute missing or empty from request"
+            "Missing Parameter",
+            "scheduling_timezone attribute missing or empty from request",
         )
 
     slack = data.get("slack_channel")
@@ -192,23 +204,26 @@ def on_post(req, resp):
         requesting_user = req.context.get("user")
         admin_username = data.get("admin")
 
-        if requesting_user is None: # Assume API key if user context is not set
+        if requesting_user is None:  # Assume API key if user context is not set
             if not admin_username:
-                 raise HTTPBadRequest(
-                     "Missing Parameter",
-                     "API requests must specify a team admin username in the admin field",
-                 )
+                raise HTTPBadRequest(
+                    "Missing Parameter",
+                    "API requests must specify a team admin username in the admin field",
+                )
             # Look up admin user ID by name
             cursor.execute(
-                """SELECT `id` FROM `user` WHERE `name` = %s LIMIT 1""", (admin_username,)
+                """SELECT `id` FROM `user` WHERE `name` = %s LIMIT 1""",
+                (admin_username,),
             )
             if cursor.rowcount == 0:
                 raise HTTPBadRequest(
-                    "Invalid admin", f"admin username {admin_username} was not found in db"
+                    "Invalid admin",
+                    f"admin username {admin_username} was not found in db",
                 )
-            requesting_user = admin_username # Use the specified admin as the acting user
+            requesting_user = (
+                admin_username  # Use the specified admin as the acting user
+            )
         # else: requesting_user is already set from context (e.g., cookie login)
-
 
         # Optional: Re-validate Iris plan inside the transaction if needed,
         # or trust the outside check and ensure the iris_plan value is safe.
@@ -255,7 +270,9 @@ def on_post(req, resp):
 
             # Create audit trail entry
             # Assuming create_audit takes a cursor and handles DB ops within it
-            create_audit({"team_id": team_id}, team_name, TEAM_CREATED, req, cursor)
+            create_audit(
+                {"team_id": team_id}, team_name, TEAM_CREATED, req, cursor
+            )
 
             # Commit the entire transaction if all steps succeed
             connection.commit()
@@ -267,7 +284,9 @@ def on_post(req, resp):
             if "Duplicate entry" in err_msg:
                 err_msg = f'team name "{team_name}" already exists'
             # Re-raise the exception after formatting the error message
-            raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg) from e
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
         # Do not need a finally block to close connection/cursor; the 'with' statement handles it.
         # Any other exception raised in the try block will also trigger rollback and cleanup.
 

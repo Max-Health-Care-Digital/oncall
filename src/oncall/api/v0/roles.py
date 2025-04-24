@@ -125,7 +125,11 @@ def on_post(req, resp):
     new_role = data.get("name")
     if new_role is None:
         # Raise a bad request if name is missing
-        raise HTTPError("400 Bad Request", "Missing Parameter", "Missing 'name' in request body")
+        raise HTTPError(
+            "400 Bad Request",
+            "Missing Parameter",
+            "Missing 'name' in request body",
+        )
 
     # Use the 'with' statement for safe connection and transaction management
     # The ContextualRawConnection will handle rollback if an exception occurs
@@ -143,7 +147,9 @@ def on_post(req, resp):
             if "Duplicate entry" in err_msg:
                 err_msg = 'role "%s" already existed' % new_role
             # Re-raise the exception after formatting the error message
-            raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg) from e
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
         # The connection and cursor are automatically closed/released by the 'with' statement
         # No need for a finally block to close connection/cursor anymore.
 

@@ -11,6 +11,7 @@ to provide a context-managed connection that also supports cursor creation.
 
 import logging
 import sys
+from builtins import Exception as StandardBaseException
 from typing import Any, Callable, Dict, Generator, Optional, Type
 
 from sqlalchemy import create_engine
@@ -169,8 +170,8 @@ class ContextualRawConnection:
 # --- Global Variables ---
 connect_factory: Optional[Callable[[], ContextualRawConnection]] = None
 DictCursor: Optional[Type[Any]] = None
-IntegrityError: Optional[Type[Exception]] = None
-Error: Optional[Type[Exception]] = None  # Base DBAPI Error class
+IntegrityError: Type[Exception] = StandardBaseException
+Error: Type[Exception] = StandardBaseException  # Base DBAPI Error class
 db_engine: Optional[Engine] = None
 
 

@@ -37,19 +37,27 @@ def on_get(req, resp, team):
             "asmith"
         ]
     """
-    team = unquote(team)
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(
-        """SELECT `user`.`name` FROM `user`
+    team_name = unquote(team)  # Renamed variable
+
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a standard cursor
+        cursor = connection.cursor()
+        cursor.execute(
+            """SELECT `user`.`name` FROM `user`
                       JOIN `team_admin` ON `team_admin`.`user_id`=`user`.`id`
                       JOIN `team` ON `team`.`id`=`team_admin`.`team_id`
                       WHERE `team`.`name`=%s""",
-        team,
-    )
-    data = [r[0] for r in cursor]
-    cursor.close()
-    connection.close()
+            (team_name,),  # Parameterize team_name as a tuple
+        )
+        # Fetch the data
+        data = [r[0] for r in cursor]
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit close calls are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'data' list
     resp.text = json_dumps(data)
 
 
@@ -94,59 +102,137 @@ def on_post(req, resp, team):
     :statuscode 400: Missing name attribute in request
     :statuscode 422: Invalid team/user, or user is already a team admin
     """
-    team = unquote(team)
-    check_team_auth(team, req)
+    team_name = unquote(team)  # Renamed variable
+    check_team_auth(team_name, req)  # Use team_name
     data = load_json_body(req)
 
-    user_name = data.get("name")
+    user_name = data.get("name")  # Use .get
     if not user_name:
-        raise HTTPBadRequest("name attribute missing from request")
+        raise HTTPBadRequest(
+            "Missing Parameter", "name attribute missing from request body"
+        )
 
-    connection = db.connect()
-    cursor = connection.cursor()
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()
 
-    cursor.execute(
-        """(SELECT `id` FROM `team` WHERE `name`=%s)
+        # 1. Get team_id and user_id using UNION ALL
+        # Use parameterized queries with %s placeholders
+        cursor.execute(
+            """(SELECT `id` FROM `team` WHERE `name`=%s)
                       UNION ALL
                       (SELECT `id` FROM `user` WHERE `name`=%s)""",
-        (team, user_name),
-    )
-    results = [r[0] for r in cursor]
-    if len(results) < 2:
-        raise HTTPError(
-            "422 Unprocessable Entity", "IntegrityError", "invalid team or user"
+            (team_name, user_name),  # Parameterize team_name and user_name
         )
-    (team_id, user_id) = results
+        results = cursor.fetchall()  # Fetch all results
 
-    try:
-        # also make sure user is in the team
-        cursor.execute(
-            """INSERT IGNORE INTO `team_user` (`team_id`, `user_id`) VALUES (%r, %r)""",
-            (team_id, user_id),
-        )
-        cursor.execute(
-            """INSERT INTO `team_admin` (`team_id`, `user_id`) VALUES (%r, %r)""",
-            (team_id, user_id),
-        )
-        # subscribe user to team notifications
-        subscribe_notifications(team, user_name, cursor)
-        create_audit({"user": user_name}, team, ADMIN_CREATED, req, cursor)
-        connection.commit()
-    except db.IntegrityError as e:
-        err_msg = str(e.args[1])
-        if err_msg == "Column 'team_id' cannot be null":
-            err_msg = "team %s not found" % team
-        if err_msg == "Column 'user_id' cannot be null":
-            err_msg = "user %s not found" % data["name"]
-        else:
-            err_msg = 'user name "%s" is already an admin of team %s' % (
-                data["name"],
-                team,
+        # Check results count
+        if len(results) < 2:
+            # Determine which one was not found for a more specific error message
+            team_exists = any(
+                r[0] is not None for r in results[:1]
+            )  # Check if first result is not None
+            user_exists = any(
+                r[0] is not None for r in results[1:]
+            )  # Check if second result is not None
+
+            if not team_exists and not user_exists:
+                error_msg = (
+                    f'team "{team_name}" and user "{user_name}" not found'
+                )
+            elif not team_exists:
+                error_msg = f'team "{team_name}" not found'
+            else:  # not user_exists
+                error_msg = f'user "{user_name}" not found'
+
+            raise HTTPError(
+                "422 Unprocessable Entity",
+                "IntegrityError",  # Keep original type
+                error_msg,
             )
-        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
-    finally:
-        cursor.close()
-        connection.close()
+
+        # Unpack results - order is guaranteed by UNION ALL structure
+        team_id = results[0][0]
+        user_id = results[1][0]  # Assuming team_id comes first, then user_id
+
+        try:
+            # 2. Add user to the team if not already a member (INSERT IGNORE into team_user)
+            # *** FIX: Use %s placeholders instead of unsafe %r ***
+            cursor.execute(
+                """INSERT IGNORE INTO `team_user` (`team_id`, `user_id`) VALUES (%s, %s)""",
+                (team_id, user_id),  # Pass values as a tuple with %s
+            )
+
+            # 3. Add user as a team admin (INSERT into team_admin)
+            # *** FIX: Use %s placeholders instead of unsafe %r ***
+            cursor.execute(
+                """INSERT INTO `team_admin` (`team_id`, `user_id`) VALUES (%s, %s)""",
+                (team_id, user_id),  # Pass values as a tuple with %s
+            )
+
+            # 4. Subscribe user to team notifications using the same cursor
+            # Assuming subscribe_notifications takes a cursor and handles DB ops within it
+            subscribe_notifications(
+                team_name, user_name, cursor
+            )  # Use renamed variables
+
+            # 5. Create audit trail entry using the same cursor
+            # Assuming create_audit takes a cursor and handles DB ops within it
+            create_audit(
+                {"user": user_name}, team_name, ADMIN_CREATED, req, cursor
+            )  # Use renamed variables, pass cursor
+
+            # 6. Commit the transaction if all steps succeed
+            # The try block implicitly starts here. Exceptions trigger rollback via 'with'.
+            connection.commit()
+
+            # 7. Fetch user data for the response body *inside* the with block
+            # Call get_user_data using the current connection and cursor (via dbinfo)
+            # This reuses the active connection instead of opening a new one.
+            user_details_for_response = get_user_data(
+                None, {"name": user_name}, dbinfo=(connection, cursor)
+            )[
+                0
+            ]  # Pass dbinfo
+
+        except db.IntegrityError as e:
+            # The 'with' statement's __exit__ will automatically call rollback.
+            err_msg = str(e.args[1])
+            # Check for specific IntegrityError messages
+            if "Column 'team_id' cannot be null" in err_msg:
+                # This indicates the team name lookup earlier failed, but the check already handles this.
+                # Keeping as a defensive fallback.
+                err_msg = (
+                    f"team '{team_name}' not found (IntegrityError fallback)"
+                )
+            elif "Column 'user_id' cannot be null" in err_msg:
+                # This indicates the user name lookup earlier failed, but the check already handles this.
+                # Keeping as a defensive fallback.
+                err_msg = (
+                    f"user '{user_name}' not found (IntegrityError fallback)"
+                )
+            elif "Duplicate entry" in err_msg:
+                # This occurs if the team_id/user_id pair already exists in team_admin
+                err_msg = f"user '{user_name}' is already an admin of team '{team_name}'"
+            else:
+                # Generic fallback for other integrity errors
+                err_msg = f"Database Integrity Error: {err_msg}"
+
+            # Re-raise the exception after formatting the error message
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
+        except (
+            Exception
+        ) as e:  # Catch any other unexpected exceptions during the transaction
+            # The with statement handles rollback automatically.
+            print(
+                f"Error during team admin creation for team={team_name}, user={user_name}: {e}"
+            )  # Replace with logging
+            raise  # Re-raise the exception
+
+        # Do not need finally block; rely on the 'with' statement.
 
     resp.status = HTTP_201
-    resp.text = json_dumps(get_user_data(None, {"name": user_name})[0])
+    # Use the user details fetched inside the with block
+    resp.text = json_dumps(user_details_for_response)

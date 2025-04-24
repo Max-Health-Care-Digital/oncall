@@ -1,8 +1,13 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTPBadRequest
-from requests import ConnectionError, HTTPError
+from typing import Any, Dict
+
+from falcon import HTTP_200, HTTPBadRequest
+from requests import (  # requests.HTTPError used here, different from falcon.HTTPError
+    ConnectionError,
+    HTTPError,
+)
 
 from ... import db, iris
 from ...auth import login_required
@@ -40,54 +45,83 @@ def on_post(req, resp, team):
 
     plan = data.get("plan")
     dynamic = False
+    plan_name = None  # Initialize plan_name outside the conditional blocks
+
+    plan_settings: Dict[str, Any] = {}
     if plan == URGENT:
         plan_settings = iris.settings["urgent_plan"]
         dynamic = True
+        plan_name = plan_settings["name"]  # Assign plan_name directly
     elif plan == MEDIUM:
         plan_settings = iris.settings["medium_plan"]
         dynamic = True
+        plan_name = plan_settings["name"]  # Assign plan_name directly
     elif plan == CUSTOM or plan is None:
         # Default to team's custom plan for backwards compatibility
-        connection = db.connect()
-        cursor = connection.cursor()
-        cursor.execute("SELECT iris_plan FROM team WHERE name = %s", team)
-        if cursor.rowcount == 0:
-            cursor.close()
-            connection.close()
-            raise HTTPBadRequest(
-                "Iris escalation failed",
-                "No escalation plan specified "
-                "and team has no custom escalation plan defined",
-            )
-        plan_name = cursor.fetchone()[0]
-        cursor.close()
-        connection.close()
+        # *** Use the 'with' statement for safe database interaction ***
+        with db.connect() as connection:
+            cursor = connection.cursor()
+            cursor.execute(
+                "SELECT iris_plan FROM team WHERE name = %s", (team,)
+            )  # Parameterize team name as tuple
+
+            # Check if team exists and has a custom plan
+            # Fetchone here to get the result if found
+            row = cursor.fetchone()
+
+            # Check if the team was found AND has a non-None iris_plan
+            if not row or row[0] is None:
+                # The connection and cursor are automatically closed/released by the 'with' block
+                raise HTTPBadRequest(
+                    "Iris escalation failed",
+                    f"Team '{team}' not found or has no custom escalation plan defined",
+                )
+
+            plan_name = row[0]  # Assign the fetched plan name
+
+        # The connection and cursor are automatically closed/released by the 'with' block when it exits
+        # Explicit close calls are no longer needed here.
+
     else:
         raise HTTPBadRequest(
             "Iris escalation failed", "Invalid escalation plan"
         )
 
+    # Rest of the logic remains outside the DB connection management
     requester = req.context.get("user")
     if not requester:
-        requester = req.context["app"]
+        requester = req.context[
+            "app"
+        ]  # Assuming 'app' key exists in req.context for app identity
     data["requester"] = requester
+
     if "description" not in data or data["description"] == "":
         raise HTTPBadRequest(
             "Iris escalation failed",
             "Escalation cannot have an empty description",
         )
+
+    # Validate Iris plan name is set (should be guaranteed by previous blocks)
+    if not plan_name:
+        raise HTTPError(
+            "500 Internal Server Error",
+            "Configuration Error",
+            "Escalation plan name was not determined correctly.",
+        )
+
     try:
         if dynamic:
-            plan_name = plan_settings["name"]
+            # Dynamic plan settings are already determined
             targets = plan_settings["dynamic_targets"]
             for t in targets:
                 # Set target to team name if not overridden in settings
                 if "target" not in t:
                     t["target"] = team
+            # Interact with external Iris client - NOT a DB operation
             re = iris.client.post(
                 iris.client.url + "incidents",
                 json={
-                    "plan": plan_name,
+                    "plan": plan_name,  # Use determined plan_name
                     "context": data,
                     "dynamic_targets": targets,
                 },
@@ -95,10 +129,21 @@ def on_post(req, resp, team):
             re.raise_for_status()
             incident_id = re.json()
         else:
+            # Interact with external Iris client - NOT a DB operation
+            # Use the determined plan_name for custom/default plans
+            # Ensure context data format is suitable for iris.client.incident
             incident_id = iris.client.incident(plan_name, context=data)
-    except (ValueError, ConnectionError, HTTPError) as e:
-        raise HTTPBadRequest(
-            "Iris escalation failed", "Iris client error: %s" % e
-        )
 
+    except (
+        ValueError,
+        ConnectionError,
+        HTTPError,
+    ) as e:  # Catch exceptions from the requests library or Iris client
+        # Re-raise as Falcon HTTPBadRequest with a specific error message
+        raise HTTPBadRequest(
+            "Iris escalation failed", f"Iris client error: {e}"
+        ) from e  # Include original exception for traceback
+
+    # Set the response text with the incident ID
     resp.text = str(incident_id)
+    resp.status = HTTP_200  # Standard response for successful creation/action

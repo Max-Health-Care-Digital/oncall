@@ -4,6 +4,7 @@
 from json import dumps as json_dumps
 
 from falcon import (
+    HTTP_200,
     HTTPBadRequest,
     HTTPError,
     HTTPForbidden,

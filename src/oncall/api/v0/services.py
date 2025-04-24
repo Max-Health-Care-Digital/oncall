@@ -1,11 +1,11 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import HTTP_201, HTTPError
+from falcon import HTTP_201, HTTPBadRequest, HTTPError  # Added HTTPBadRequest
 from ujson import dumps as json_dumps
 
 from ... import db
-from ...auth import debug_only
+from ...auth import debug_only  # Assuming debug_only is a valid decorator
 from ...utils import load_json_body
 
 constraints = {
@@ -59,46 +59,102 @@ def on_get(req, resp):
             "service-foo"
         ]
     """
+    # Base query string template
     query = "SELECT `name` FROM `service`"
 
-    where_params = []
-    where_vals = []
-    for key in req.params:
-        val = req.get_param(key)
+    # Build WHERE clause using parameterized query snippets and values
+    where_params_snippets = []  # e.g., "`service`.`name` = %s"
+    where_vals = []  # e.g., ["service-foo"]
+
+    for (
+        key,
+        val,
+    ) in req.params.items():  # Iterate through items to get key and value
         if key in constraints:
-            where_params.append(constraints[key])
-            where_vals.append(val)
-    where_query = " AND ".join(where_params)
+            where_params_snippets.append(
+                constraints[key]
+            )  # Add the snippet with placeholder
+            where_vals.append(val)  # Add the value
 
+    # Combine WHERE clause snippets
+    where_query = " AND ".join(where_params_snippets)
+
+    # Final query string template
     if where_query:
-        query = "%s WHERE %s" % (query, where_query)
+        # Note: While this string formatting works with the parameters passed later,
+        # building the full query template with placeholders directly is often cleaner.
+        # Sticking to original style for minimal change.
+        query = f"{query} WHERE {where_query}"
 
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(query, where_vals)
-    data = [r[0] for r in cursor]
-    cursor.close()
-    connection.close()
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a standard cursor
+        cursor = connection.cursor()
+
+        # Execute the query with the parameters
+        # where_vals list will be empty if no constraints were applied
+        cursor.execute(query, where_vals)
+
+        # Fetch the data
+        data = [r[0] for r in cursor]
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit close calls are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'data' list
     resp.text = json_dumps(data)
 
 
 @debug_only
 def on_post(req, resp):
+    # Assuming debug_only decorator handles auth/access control
     data = load_json_body(req)
 
-    connection = db.connect()
-    cursor = connection.cursor()
-    try:
-        cursor.execute("INSERT INTO `service` (`name`) VALUES (%(name)s)", data)
-        connection.commit()
-    except db.IntegrityError:
-        raise HTTPError(
-            "422 Unprocessable Entity",
-            "IntegrityError",
-            'service name "%(name)s" already exists' % data,
+    service_name = data.get("name")  # Use .get
+    if not service_name:
+        raise HTTPBadRequest(
+            "Missing Parameter", "name attribute missing from request body"
         )
-    finally:
-        cursor.close()
-        connection.close()
+
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+
+        try:
+            # Insert into service table using dictionary parameter
+            cursor.execute(
+                "INSERT INTO `service` (`name`) VALUES (%(name)s)",
+                {"name": service_name},
+            )  # Pass as dict
+
+            # Commit the transaction if the insert succeeds
+            connection.commit()
+
+        except db.IntegrityError as e:
+            # The 'with' statement's __exit__ will automatically call rollback.
+            err_msg = str(e.args[1])
+            # Check for duplicate entry error
+            if "Duplicate entry" in err_msg:
+                err_msg = f'service name "{service_name}" already exists'  # Use f-string
+            # Add other potential IntegrityError checks if applicable
+            else:
+                # Generic fallback for other integrity errors
+                err_msg = f"Database Integrity Error: {err_msg}"
+
+            # Re-raise the exception after formatting the error message
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
+        except (
+            Exception
+        ) as e:  # Catch any other unexpected exceptions during the transaction
+            # The with statement handles rollback automatically.
+            print(
+                f"Error during service creation for name={service_name}: {e}"
+            )  # Replace with logging
+            raise  # Re-raise the exception
+
+        # Do not need finally block; rely on the 'with' statement.
 
     resp.status = HTTP_201

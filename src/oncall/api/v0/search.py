@@ -2,6 +2,7 @@
 # See LICENSE in the project root for license information.
 
 from ujson import dumps
+
 from ... import db
 
 

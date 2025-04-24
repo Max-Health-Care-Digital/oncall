@@ -279,4 +279,3 @@ def on_post(req, resp):
         # No need for a finally block to close connection/cursor anymore.
 
     resp.status = HTTP_201
-

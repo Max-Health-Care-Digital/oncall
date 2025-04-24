@@ -3,16 +3,16 @@
 
 import logging
 import operator
-import time # Import time for potential use
+import time  # Import time for potential use
 
+from falcon import HTTP_200  # Import HTTP_200
 from falcon import (
     HTTPBadRequest,
     HTTPError,
     HTTPInternalServerError,
     HTTPNotFound,
-    HTTP_200, # Import HTTP_200
 )
-from ujson import dumps as json_dumps # Import json_dumps
+from ujson import dumps as json_dumps  # Import json_dumps
 
 # Assuming load_scheduler is correctly imported
 try:
@@ -20,14 +20,17 @@ try:
 except ImportError:
     # Provide a fallback or raise a more specific error if scheduler loading is critical
     def load_scheduler(name):
-        raise ImportError(f"Could not import load_scheduler from oncall.bin.scheduler. Scheduler '{name}' cannot be loaded.")
+        raise ImportError(
+            f"Could not import load_scheduler from oncall.bin.scheduler. Scheduler '{name}' cannot be loaded."
+        )
+
 
 from ... import db
 from .schedules import get_schedules
 
 # Define constants for temporary table name
-TEMP_EVENT_TABLE = "temp_event_preview" # Use a more specific name perhaps
-logger = logging.getLogger(__name__) # Setup logger
+TEMP_EVENT_TABLE = "temp_event_preview"  # Use a more specific name perhaps
+logger = logging.getLogger(__name__)  # Setup logger
 
 
 def on_get(req, resp, schedule_id):
@@ -38,17 +41,23 @@ def on_get(req, resp, schedule_id):
         schedule_id_int = int(schedule_id)
         # Get start time from query param, default to now if not provided
         start_time_param = req.get_param_as_int("start")
-        start_time = start_time_param if start_time_param is not None else int(time.time())
+        start_time = (
+            start_time_param
+            if start_time_param is not None
+            else int(time.time())
+        )
 
     except ValueError:
         raise HTTPBadRequest(
-            "Invalid Parameter", "Schedule ID and optional 'start' time must be integers."
+            "Invalid Parameter",
+            "Schedule ID and optional 'start' time must be integers.",
         )
 
     # Use a single 'with' block for the entire operation including temp table
+    temp_table_name = TEMP_EVENT_TABLE  # Initialize here
     try:
         with db.connect() as connection:
-            cursor = None # Initialize cursor
+            cursor = None  # Initialize cursor
             try:
                 cursor = connection.cursor(db.DictCursor)
 
@@ -62,37 +71,55 @@ def on_get(req, resp, schedule_id):
                         description=f"Schedule {schedule_id_int} not found."
                     )
                 schedule = schedules_list[0]
-                team_name = schedule.get("team") # Needed for build_preview_response
+                team_name = schedule.get(
+                    "team"
+                )  # Needed for build_preview_response
                 if not team_name:
-                     raise HTTPInternalServerError(title="Data Error", description=f"Schedule {schedule_id_int} missing team information.")
+                    raise HTTPInternalServerError(
+                        title="Data Error",
+                        description=f"Schedule {schedule_id_int} missing team information.",
+                    )
 
                 # 2. Load Scheduler Module
                 scheduler_info = schedule.get("scheduler", {})
-                scheduler_name = scheduler_info.get("name") if isinstance(scheduler_info, dict) else None
+                scheduler_name = (
+                    scheduler_info.get("name")
+                    if isinstance(scheduler_info, dict)
+                    else None
+                )
                 if not scheduler_name:
-                     raise HTTPInternalServerError(title="Configuration Error", description=f"Schedule {schedule_id_int} has no associated scheduler.")
+                    raise HTTPInternalServerError(
+                        title="Configuration Error",
+                        description=f"Schedule {schedule_id_int} has no associated scheduler.",
+                    )
 
                 try:
                     scheduler = load_scheduler(scheduler_name)
                 except Exception as e:
-                    logger.error(f"Error loading scheduler '{scheduler_name}': {e}", exc_info=True)
+                    logger.error(
+                        f"Error loading scheduler '{scheduler_name}': {e}",
+                        exc_info=True,
+                    )
                     raise HTTPInternalServerError(
                         title="Scheduler Load Error",
                         description=f"Failed to load scheduler module '{scheduler_name}'.",
                     )
-
                 # --- Temporary Table Logic ---
                 # Ensure temp table name is safe (already hardcoded, so it is)
-                temp_table_name = TEMP_EVENT_TABLE # Use the constant
+                # temp_table_name is already initialized before the outer try block
 
                 # 3. Drop existing temp table (if any) - important for idempotency within session
                 # Use try-except for DROP IF EXISTS as it might not exist
+                # Use try-except for DROP IF EXISTS as it might not exist
                 try:
-                    cursor.execute(f"DROP TEMPORARY TABLE IF EXISTS `{temp_table_name}`")
+                    cursor.execute(
+                        f"DROP TEMPORARY TABLE IF EXISTS `{temp_table_name}`"
+                    )
                 except db.Error as drop_err:
                     # Log warning, but proceed. Might fail if DB user lacks permissions.
-                    logger.warning(f"Could not drop temporary table '{temp_table_name}': {drop_err}")
-
+                    logger.warning(
+                        f"Could not drop temporary table '{temp_table_name}': {drop_err}"
+                    )
 
                 # 4. Create Temporary Table (schema should match 'event' table closely)
                 # Adjusted schema based on potential needs for preview
@@ -118,19 +145,27 @@ def on_get(req, resp, schedule_id):
                 # Pass the temp table name to the populate method
                 # The populate method should handle commit/rollback for its operations *within* the transaction
                 # Note: populate might raise HTTPBadRequest if start_time is in the past.
-                scheduler.populate(schedule, start_time, (connection, cursor), table_name=temp_table_name)
+                scheduler.populate(
+                    schedule,
+                    start_time,
+                    (connection, cursor),
+                    table_name=temp_table_name,
+                )
 
                 # 6. Build the preview response using data from the temporary table
                 # Calculate time range for preview (e.g., from start_time to threshold)
-                preview_end_time = start_time + schedule.get('auto_populate_threshold', 21) * 24 * 60 * 60 # Default 21 days
+                preview_end_time = (
+                    start_time
+                    + schedule.get("auto_populate_threshold", 21) * 24 * 60 * 60
+                )  # Default 21 days
 
                 # Call build_preview_response which queries the temp table
                 preview_json = scheduler.build_preview_response(
                     cursor,
-                    start__lt=preview_end_time, # Events ending after start_time
-                    end__ge=start_time,         # Events starting before preview_end_time
-                    team__eq=team_name,         # Filter by team name
-                    table_name=temp_table_name
+                    start__lt=preview_end_time,  # Events ending after start_time
+                    end__ge=start_time,  # Events starting before preview_end_time
+                    team__eq=team_name,  # Filter by team name
+                    table_name=temp_table_name,
                 )
 
                 # 7. Transaction is implicitly committed here if no exceptions occurred
@@ -143,39 +178,67 @@ def on_get(req, resp, schedule_id):
 
             except HTTPError as http_e:
                 # Log and re-raise known HTTP errors
-                logger.info(f"HTTP error during preview for schedule {schedule_id_int}: {http_e.title} - {http_e.description}")
+                logger.info(
+                    f"HTTP error during preview for schedule {schedule_id_int}: {http_e.title} - {http_e.description}"
+                )
                 raise http_e
             except db.Error as db_e:
                 # Log DB errors during the process
-                logger.exception(f"Database error during preview for schedule {schedule_id_int}: {db_e}")
+                logger.exception(
+                    f"Database error during preview for schedule {schedule_id_int}: {db_e}"
+                )
                 # Rollback is handled by 'with' block
-                raise HTTPInternalServerError(title="Database Error", description=f"A database error occurred during preview generation: {db_e}")
+                raise HTTPInternalServerError(
+                    title="Database Error",
+                    description=f"A database error occurred during preview generation: {db_e}",
+                )
             except Exception as e:
                 # Log unexpected errors
-                logger.exception(f"Unexpected error during preview for schedule {schedule_id_int}: {e}")
+                logger.exception(
+                    f"Unexpected error during preview for schedule {schedule_id_int}: {e}"
+                )
                 # Rollback is handled by 'with' block
-                raise HTTPInternalServerError(title="Preview Error", description=f"An unexpected error occurred during preview generation: {e}")
+                raise HTTPInternalServerError(
+                    title="Preview Error",
+                    description=f"An unexpected error occurred during preview generation: {e}",
+                )
             finally:
                 # Attempt to drop the temp table explicitly, though it should drop on session end
                 if cursor:
                     try:
                         # Check if connection is still valid before executing drop
-                        if connection and not connection._raw_conn.closed: # Accessing protected member, might need adjustment based on actual connection object
-                            cursor.execute(f"DROP TEMPORARY TABLE IF EXISTS `{temp_table_name}`")
-                            logger.debug(f"Dropped temporary table '{temp_table_name}'")
+                        if (
+                            connection and not connection._raw_conn.closed
+                        ):  # Accessing protected member, might need adjustment based on actual connection object
+                            cursor.execute(
+                                f"DROP TEMPORARY TABLE IF EXISTS `{temp_table_name}`"
+                            )
+                            logger.debug(
+                                f"Dropped temporary table '{temp_table_name}'"
+                            )
                     except Exception as drop_final_err:
-                        logger.warning(f"Error during final drop of temporary table '{temp_table_name}': {drop_final_err}")
+                        logger.warning(
+                            f"Error during final drop of temporary table '{temp_table_name}': {drop_final_err}"
+                        )
                     finally:
                         # Ensure cursor is closed
                         try:
                             cursor.close()
                         except Exception as cur_e:
-                            logger.warning(f"Error closing cursor in finally block: {cur_e}")
+                            logger.warning(
+                                f"Error closing cursor in finally block: {cur_e}"
+                            )
         # Connection automatically closed/returned by 'with'
 
     except db.Error as e:
-        logger.exception(f"Database connection error for preview schedule {schedule_id_int}: {e}")
+        logger.exception(
+            f"Database connection error for preview schedule {schedule_id_int}: {e}"
+        )
         raise HTTPInternalServerError(description="Database connection failed.")
     except Exception as e:
-        logger.exception(f"Unexpected error in preview endpoint for schedule {schedule_id_int}: {e}")
-        raise HTTPInternalServerError(description=f"An unexpected error occurred: {e}")
+        logger.exception(
+            f"Unexpected error in preview endpoint for schedule {schedule_id_int}: {e}"
+        )
+        raise HTTPInternalServerError(
+            description=f"An unexpected error occurred: {e}"
+        )

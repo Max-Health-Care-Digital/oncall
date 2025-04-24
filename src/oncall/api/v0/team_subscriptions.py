@@ -2,10 +2,11 @@
 # See LICENSE in the project root for license information.
 
 import logging
-from typing import Any, Dict # Added for type hints
+from typing import Any, Dict  # Added for type hints
 
-from falcon import (HTTP_201, HTTPBadRequest, HTTPError, Request, Response, # Added Request, Response
-                    HTTPNotFound) # Added HTTPNotFound for potential future use
+from falcon import HTTPBadRequest  # Added Request, Response
+from falcon import HTTPNotFound  # Added HTTPNotFound for potential future use
+from falcon import HTTP_201, HTTPError, Request, Response
 
 # Assuming db module provides connect() returning the safe wrapper, Error, IntegrityError, DictCursor
 from ... import db
@@ -38,9 +39,11 @@ def on_get(req: Request, resp: Response, team: str) -> None:
             cursor = None
             try:
                 # Request DictCursor if available and needed for dictionary access below
-                dict_cursor_cls = getattr(db, 'DictCursor', None)
+                dict_cursor_cls = getattr(db, "DictCursor", None)
                 if not dict_cursor_cls:
-                    logger.warning('db.DictCursor not available for this driver. Row access might need adjustment.')
+                    logger.warning(
+                        "db.DictCursor not available for this driver. Row access might need adjustment."
+                    )
                 cursor_args = (dict_cursor_cls,) if dict_cursor_cls else ()
                 cursor = connection_wrapper.cursor(*cursor_args)
 
@@ -56,17 +59,29 @@ def on_get(req: Request, resp: Response, team: str) -> None:
                     try:
                         cursor.close()
                     except Exception as cur_e:
-                        logger.warning(f'Error closing cursor: {cur_e}', exc_info=True)
+                        logger.warning(
+                            f"Error closing cursor: {cur_e}", exc_info=True
+                        )
 
         # Falcon automatically handles JSON conversion for resp.media
         resp.media = data
 
     except db.Error as e:
-        logger.error(f"Database error fetching subscriptions for team '{team}': {e}", exc_info=True)
-        raise HTTPError('500 Internal Server Error', description=f'Database Error: {e}')
+        logger.error(
+            f"Database error fetching subscriptions for team '{team}': {e}",
+            exc_info=True,
+        )
+        raise HTTPError(
+            "500 Internal Server Error", description=f"Database Error: {e}"
+        )
     except Exception as e:
-        logger.error(f"Unexpected error fetching subscriptions for team '{team}': {e}", exc_info=True)
-        raise HTTPError('500 Internal Server Error', description=f'Unexpected Error: {e}')
+        logger.error(
+            f"Unexpected error fetching subscriptions for team '{team}': {e}",
+            exc_info=True,
+        )
+        raise HTTPError(
+            "500 Internal Server Error", description=f"Unexpected Error: {e}"
+        )
 
 
 @login_required
@@ -85,10 +100,16 @@ def on_post(req: Request, resp: Response, team: str) -> None:
 
     # Validate input parameters
     if not sub_name or not role_name:
-        raise HTTPBadRequest("Missing parameter(s)", description="Required 'subscription' (team name) and 'role' parameters missing from JSON body")
+        raise HTTPBadRequest(
+            "Missing parameter(s)",
+            description="Required 'subscription' (team name) and 'role' parameters missing from JSON body",
+        )
 
     if sub_name == team:
-        raise HTTPBadRequest("Invalid subscription", description="Subscription team must be different from the subscribing team")
+        raise HTTPBadRequest(
+            "Invalid subscription",
+            description="Subscription team must be different from the subscribing team",
+        )
 
     # NOTE: Using %s placeholder style
     sql = """
@@ -113,53 +134,96 @@ def on_post(req: Request, resp: Response, team: str) -> None:
 
                 # Commit the transaction using the wrapper *after* successful execution
                 connection_wrapper.commit()
-                logger.info(f"Successfully added subscription for team '{team}' to team '{sub_name}' role '{role_name}'.")
-                resp.status = HTTP_201 # Set status on success
+                logger.info(
+                    f"Successfully added subscription for team '{team}' to team '{sub_name}' role '{role_name}'."
+                )
+                resp.status = HTTP_201  # Set status on success
 
             except db.IntegrityError as e:
                 # Rollback transaction on integrity error
                 try:
-                    logger.warning(f"Rolling back transaction due to IntegrityError: {e}")
+                    logger.warning(
+                        f"Rolling back transaction due to IntegrityError: {e}"
+                    )
                     connection_wrapper.rollback()
                 except Exception as rb_e:
                     # Log rollback failure but proceed to raise original error context
-                    logger.error(f'Rollback failed after IntegrityError: {rb_e}', exc_info=True)
+                    logger.error(
+                        f"Rollback failed after IntegrityError: {rb_e}",
+                        exc_info=True,
+                    )
 
-                logger.warning(f'IntegrityError adding subscription for team "{team}" to team "{sub_name}" role "{role_name}": {e}')
+                logger.warning(
+                    f'IntegrityError adding subscription for team "{team}" to team "{sub_name}" role "{role_name}": {e}'
+                )
                 # Try to determine cause without fragile string parsing, using codes if available
-                error_code = e.args[0] if isinstance(e.args, tuple) and len(e.args) > 0 else None
-                if error_code == 1062: # MySQL duplicate entry code
+                error_code = (
+                    e.args[0]
+                    if isinstance(e.args, tuple) and len(e.args) > 0
+                    else None
+                )
+                if error_code == 1062:  # MySQL duplicate entry code
                     err_msg = f'Subscription for team "{team}" to team "{sub_name}" role "{role_name}" already exists.'
                     # Use 409 Conflict or 400 Bad Request for duplicates
-                    raise HTTPBadRequest("Subscription exists", description=err_msg) from e
-                elif error_code == 1048: # MySQL column cannot be null (often due to non-existent FK)
-                     err_msg = f'Team "{team}", Subscribing Team "{sub_name}", or Role "{role_name}" not found (or other required value missing).'
-                     raise HTTPError("422 Unprocessable Entity", "Not Found or Invalid Reference", description=err_msg) from e
-                else: # Generic integrity error
+                    raise HTTPBadRequest(
+                        "Subscription exists", description=err_msg
+                    ) from e
+                elif (
+                    error_code == 1048
+                ):  # MySQL column cannot be null (often due to non-existent FK)
+                    err_msg = f'Team "{team}", Subscribing Team "{sub_name}", or Role "{role_name}" not found (or other required value missing).'
+                    raise HTTPError(
+                        "422 Unprocessable Entity",
+                        "Not Found or Invalid Reference",
+                        description=err_msg,
+                    ) from e
+                else:  # Generic integrity error
                     err_msg = f"Database integrity constraint violated when adding subscription. Please check if teams and roles exist."
-                    logger.debug(f"Original IntegrityError details: {e}") # Log details for debugging
-                    raise HTTPError("422 Unprocessable Entity", "Integrity Constraint Failed", description=err_msg) from e
+                    logger.debug(
+                        f"Original IntegrityError details: {e}"
+                    )  # Log details for debugging
+                    raise HTTPError(
+                        "422 Unprocessable Entity",
+                        "Integrity Constraint Failed",
+                        description=err_msg,
+                    ) from e
 
-            except db.Error as db_err: # Catch other DB errors during execute
-                 try:
-                     # Rollback if commit wasn't reached
-                     connection_wrapper.rollback()
-                 except Exception as rb_e:
-                    logger.warning(f'Rollback failed after db.Error: {rb_e}', exc_info=True)
-                 logger.error(f"Database error adding subscription: {db_err}", exc_info=True)
-                 raise HTTPError('500 Internal Server Error', description=f'Database Execution Error: {db_err}') from db_err
+            except db.Error as db_err:  # Catch other DB errors during execute
+                try:
+                    # Rollback if commit wasn't reached
+                    connection_wrapper.rollback()
+                except Exception as rb_e:
+                    logger.warning(
+                        f"Rollback failed after db.Error: {rb_e}", exc_info=True
+                    )
+                logger.error(
+                    f"Database error adding subscription: {db_err}",
+                    exc_info=True,
+                )
+                raise HTTPError(
+                    "500 Internal Server Error",
+                    description=f"Database Execution Error: {db_err}",
+                ) from db_err
             finally:
                 # Ensure cursor is closed manually
                 if cursor:
                     try:
                         cursor.close()
                     except Exception as cur_e:
-                        logger.warning(f'Error closing cursor: {cur_e}', exc_info=True)
+                        logger.warning(
+                            f"Error closing cursor: {cur_e}", exc_info=True
+                        )
 
     except HTTPError as e:
         # Re-raise HTTP errors raised explicitly (e.g., 400, 422 from DB block)
         raise e
     except Exception as e:
         # Catch unexpected errors outside the DB block (e.g., load_json_body, check_team_auth)
-        logger.error(f"Unexpected error adding subscription for team '{team}' to team '{sub_name}': {e}", exc_info=True)
-        raise HTTPError('500 Internal Server Error', description=f'Unexpected Server Error: {e}')
+        logger.error(
+            f"Unexpected error adding subscription for team '{team}' to team '{sub_name}': {e}",
+            exc_info=True,
+        )
+        raise HTTPError(
+            "500 Internal Server Error",
+            description=f"Unexpected Server Error: {e}",
+        )

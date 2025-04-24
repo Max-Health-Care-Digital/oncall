@@ -80,14 +80,17 @@ def on_get(req, resp):
     :query end: upper bound for audit entry's timestamp (unix timestamp)
     """
     # Preprocess parameters as needed before building the query or executing
-    request_params = req.params.copy() # Work on a copy to avoid modifying req.params directly
+    request_params = (
+        req.params.copy()
+    )  # Work on a copy to avoid modifying req.params directly
     if "action" in request_params:
         # Ensure action is a list/tuple for the IN clause
         action_value = request_params["action"]
         if not isinstance(action_value, (list, tuple)):
-             request_params["action"] = [action_value] # Wrap single value in a list
+            request_params["action"] = [
+                action_value
+            ]  # Wrap single value in a list
         # If it's already a list/tuple, use it as is.
-
 
     query = """SELECT `owner_name` AS `owner`, `team_name` AS `team`,
                    `action_name` AS `action`, `timestamp`, `context`
@@ -101,7 +104,9 @@ def on_get(req, resp):
             where_params_snippets.append(filters[field])
         # else: Ignore unknown parameters
 
-    where_clause = " AND ".join(where_params_snippets) if where_params_snippets else "1" # Use "1" for no WHERE conditions
+    where_clause = (
+        " AND ".join(where_params_snippets) if where_params_snippets else "1"
+    )  # Use "1" for no WHERE conditions
 
     # Combine query template and WHERE clause
     # Note: Using dictionary parameters %(name)s means the query string
@@ -110,10 +115,8 @@ def on_get(req, resp):
     if where_clause != "1":
         query = f"{query} WHERE {where_clause}"
 
-
     # Add ordering for consistent results (optional but good practice)
     # query += " ORDER BY `timestamp` DESC" # Example ordering
-
 
     # Use the 'with' statement for safe connection management
     with db.connect() as connection:

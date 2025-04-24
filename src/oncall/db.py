@@ -11,6 +11,7 @@ to provide a context-managed connection that also supports cursor creation.
 
 import logging
 import sys
+from builtins import Exception as StandardBaseException
 from typing import Any, Callable, Dict, Generator, Optional, Type
 
 from sqlalchemy import create_engine
@@ -166,189 +167,11 @@ class ContextualRawConnection:
     #     return getattr(self._raw_conn, name)
 
 
-class UnsafeContextualRawConnection:
-    """
-    WARNING: THIS IS AN UNSAFE IMPLEMENTATION.
-    It allows methods like .cursor() to be called outside a 'with' block
-    by acquiring NEW, UNMANAGED connections that WILL LEAK, leading to
-    resource exhaustion and application failure. This is only provided
-    because modifying consuming API code was forbidden.
-    DO NOT USE IN PRODUCTION unless the underlying issues are fixed.
-
-    Wraps a raw DBAPI connection, provides context management, and delegates
-    methods, but includes dangerous fallbacks for calls outside 'with'.
-    """
-
-    def __init__(self, raw_connection_factory: Callable[[], Any]):
-        self._factory = raw_connection_factory
-        self._raw_conn: Optional[Any] = (
-            None  # Holds the managed connection when inside 'with'
-        )
-
-    def __enter__(self) -> "UnsafeContextualRawConnection":
-        """Gets a raw connection from the factory (MANAGED)."""
-        if self._raw_conn is not None:
-            raise RuntimeError("Context manager is not re-entrant.")
-        try:
-            self._raw_conn = self._factory()
-            log.debug(
-                f"Acquired MANAGED raw DBAPI connection via __enter__: {type(self._raw_conn)}"
-            )
-            return self
-        except Exception as e:
-            log.error(
-                f"Failed to acquire raw DBAPI connection via __enter__: {e}",
-                exc_info=True,
-            )
-            self._raw_conn = None
-            raise
-
-    def __exit__(
-        self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[Any],
-    ) -> Optional[bool]:
-        """Closes the MANAGED raw connection."""
-        if self._raw_conn:
-            conn_to_close = self._raw_conn
-            conn_type = type(conn_to_close)
-            self._raw_conn = None  # Mark as inactive *before* closing
-            try:
-                log.debug(
-                    f"Closing MANAGED raw DBAPI connection via __exit__: {conn_type}"
-                )
-                conn_to_close.close()
-            except Exception as e:
-                log.warning(
-                    f"Error closing MANAGED raw DBAPI connection ({conn_type}): {e}",
-                    exc_info=True,
-                )
-                return False
-        return False
-
-    def _get_conn_dangerously(self) -> Any:
-        """
-        Internal helper to get a connection.
-        Returns the managed connection if inside 'with'.
-        Otherwise, acquires and returns a NEW, UNMANAGED, LEAKY connection.
-        """
-        if self._raw_conn:
-            # We are inside the 'with' block, return the managed connection
-            return self._raw_conn
-        else:
-            # We are outside the 'with' block. Acquire a new connection.
-            # !!! THIS CONNECTION WILL NOT BE CLOSED AUTOMATICALLY !!!
-            # !!! IT WILL LEAK RESOURCES FROM THE POOL !!!
-            log.warning(
-                "UNSAFE: Acquiring new raw DBAPI connection outside 'with' block. THIS WILL LEAK CONNECTIONS!"
-            )
-            try:
-                # Get a new connection directly from the factory
-                leaky_conn = self._factory()
-                log.debug(
-                    f"Acquired UNMANAGED/LEAKY connection: {type(leaky_conn)}"
-                )
-                return leaky_conn
-            except Exception as e:
-                log.error(
-                    f"Failed to acquire UNMANAGED/LEAKY connection: {e}",
-                    exc_info=True,
-                )
-                raise RuntimeError(
-                    f"Failed to get necessary DB connection: {e}"
-                )
-
-    def cursor(self, *args: Any, **kwargs: Any) -> Any:
-        """Delegates cursor creation. Uses managed conn if active, otherwise LEAKS a new conn."""
-        conn = self._get_conn_dangerously()
-        log.debug(
-            f"Creating cursor from {('managed' if self._raw_conn else 'UNMANAGED/LEAKY')} connection."
-        )
-        # Note: If conn is leaky, whether closing the cursor closes conn is driver-dependent and unreliable.
-        return conn.cursor(*args, **kwargs)
-
-    def commit(self) -> None:
-        """Delegates commit. Uses managed conn if active, otherwise LEAKS a new conn."""
-        conn = self._get_conn_dangerously()
-        log.debug(
-            f"Committing on {('managed' if self._raw_conn else 'UNMANAGED/LEAKY')} connection."
-        )
-        conn.commit()
-        # If conn was leaky, it remains open and unmanaged after commit.
-
-    def rollback(self) -> None:
-        """Delegates rollback. Uses managed conn if active, otherwise LEAKS a new conn."""
-        conn = self._get_conn_dangerously()
-        log.debug(
-            f"Rolling back on {('managed' if self._raw_conn else 'UNMANAGED/LEAKY')} connection."
-        )
-        conn.rollback()
-        # If conn was leaky, it remains open and unmanaged after rollback.
-
-    def escape(self, value: Any) -> str:
-        """Delegates escaping. Uses managed conn if active, otherwise LEAKS a new conn."""
-        conn = self._get_conn_dangerously()
-        log.debug(
-            f"Escaping value on {('managed' if self._raw_conn else 'UNMANAGED/LEAKY')} connection."
-        )
-
-        if hasattr(conn, "escape"):
-            escape_method = conn.escape
-            return escape_method(value)
-        elif hasattr(conn, "escape_string"):
-            escape_method = conn.escape_string
-            return escape_method(value)
-        else:
-            log.error(
-                f"Underlying DBAPI connection {type(conn)} has no recognized 'escape' or 'escape_string' method."
-            )
-            raise NotImplementedError(
-                f"Escape method not supported by underlying DBAPI driver: {type(conn)}"
-            )
-
-    def close(self) -> None:
-        """
-        Placeholder method to prevent AttributeError from legacy code.
-
-        WARNING: This method does NOT reliably close database connections,
-                 especially those acquired unsafely outside a 'with' block.
-                 Proper resource management only occurs when using this object
-                 as a context manager (via 'with db.connect()').
-                 Calling this manually may have no effect on leaked connections.
-        """
-        # This method primarily exists to prevent the AttributeError.
-        # It does NOT guarantee closure of leaked connections.
-        log.warning(
-            "UnsafeContextualRawConnection.close() called manually. "
-            "This method is a placeholder and does NOT guarantee "
-            "connection closure or prevent leaks. Use 'with db.connect()' "
-            "for proper resource management."
-        )
-        # Option 1: Do nothing (safest for not interfering with __exit__)
-        # pass
-
-        # Option 2 (Slightly more active, but potentially problematic):
-        # Attempt to close the *managed* connection if it exists.
-        # This does NOT close connections leaked by _get_conn_dangerously.
-        # It might also interfere with __exit__ if called at the wrong time.
-        # Generally safer to just 'pass'.
-        if self._raw_conn:
-            try:
-                log.debug(
-                    "Attempting to close potentially managed connection via manual .close()"
-                )
-                self._raw_conn.close()
-                self._raw_conn = None  # Clear ref if closed manually
-            except Exception as e:
-                log.warning(f"Error during manual .close() attempt: {e}")
-
-
 # --- Global Variables ---
 connect_factory: Optional[Callable[[], ContextualRawConnection]] = None
 DictCursor: Optional[Type[Any]] = None
-IntegrityError: Optional[Type[Exception]] = None
-Error: Optional[Type[Exception]] = None  # Base DBAPI Error class
+IntegrityError: Type[Exception] = StandardBaseException
+Error: Type[Exception] = StandardBaseException  # Base DBAPI Error class
 db_engine: Optional[Engine] = None
 
 
@@ -437,7 +260,11 @@ def init(config: Dict[str, Any]) -> None:
 
         # --- Assign Connection Factory using the Wrapper ---
         # 'connect_factory' will create a new wrapper instance each time it's called
-        connect_factory = lambda: UnsafeContextualRawConnection(
+        # connect_factory = lambda: UnsafeContextualRawConnection(
+        #     db_engine.raw_connection
+        # )
+
+        connect_factory = lambda: ContextualRawConnection(
             db_engine.raw_connection
         )
 

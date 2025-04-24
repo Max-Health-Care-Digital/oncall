@@ -14,17 +14,17 @@ def on_get(req, resp, team, role=None):
 
     .. sourcecode:: http
 
-       GET /api/v0/teams/team_ops/oncall/primary HTTP/1.1
-       Host: example.com
+        GET /api/v0/teams/team_ops/oncall/primary HTTP/1.1
+        Host: example.com
 
     **Example response**:
 
     .. sourcecode:: http
 
-       HTTP/1.1 200 OK
-       Content-Type: application/json
+        HTTP/1.1 200 OK
+        Content-Type: application/json
 
-       [
+        [
          {
            "user": "foo",
            "start": 1487426400,
@@ -49,7 +49,7 @@ def on_get(req, resp, team, role=None):
              "call": "+1 123-456-7890"
            }
          }
-       ]
+        ]
 
     :statuscode 200: no error
     """
@@ -71,39 +71,73 @@ def on_get(req, resp, team, role=None):
         LEFT JOIN `user_contact` ON `user`.`id` = `user_contact`.`user_id`
         LEFT JOIN `contact_mode` ON `contact_mode`.`id` = `user_contact`.`mode_id`
         WHERE UNIX_TIMESTAMP() BETWEEN `event`.`start` AND `event`.`end`
-            AND (`team`.`name` = %s OR `subscriber`.`name` = %s)"""
+          AND (`team`.`name` = %s OR `subscriber`.`name` = %s)"""
     query_params = [team, team]
     if role is not None:
         get_oncall_query += " AND `role`.`name` = %s"
         query_params.append(role)
 
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
-    cursor.execute(get_oncall_query, query_params)
-    data = cursor.fetchall()
-    cursor.execute(
-        "SELECT `override_phone_number` FROM team WHERE `name` = %s", team
-    )
-    team = cursor.fetchone()
-    override_number = team["override_phone_number"] if team else None
+    fetched_data = []
+    override_number = None
+
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Ensure DictCursor is available
+        if not db.DictCursor:
+            raise RuntimeError(
+                "DictCursor is required but not available. Check DBAPI driver and db.init()."
+            )
+        cursor = connection.cursor(db.DictCursor)
+
+        # Execute the main query to get on-call info
+        cursor.execute(
+            get_oncall_query, tuple(query_params)
+        )  # Pass params as tuple
+        fetched_data = cursor.fetchall()
+
+        # Execute the query to get the override number
+        cursor.execute(
+            "SELECT `override_phone_number` FROM team WHERE `name` = %s",
+            (team,),  # Pass team name as a tuple
+        )
+        team_info = cursor.fetchone()  # Use different variable name
+        override_number = (
+            team_info["override_phone_number"] if team_info else None
+        )
+
+        # No need for explicit cursor.close() or connection.close()
+        # Connection is automatically released when exiting the 'with' block
+
+    # Process the data fetched from the database *after* the connection is closed
     ret = {}
-    for row in data:
+    for row in fetched_data:
         user = row["user"]
-        # add data row into accumulator only if not already there
+        # Add data row into accumulator only if not already there
         if user not in ret:
-            ret[user] = row
+            # Copy the row to avoid modifying the original fetched data structure if needed elsewhere
+            ret[user] = row.copy()  # Use copy() for safety
             ret[user]["contacts"] = {}
-        mode = row.pop("mode")
-        if not mode:
-            continue
-        dest = row.pop("destination")
-        ret[user]["contacts"][mode] = dest
-    data = list(ret.values())
-    for event in data:
-        if override_number and event["role"] == "primary":
+        mode = row.get("mode")  # Use .get() for safety with LEFT JOINs
+        dest = row.get("destination")  # Use .get() for safety
+        if mode and dest:  # Only add contact if both mode and destination exist
+            ret[user]["contacts"][mode] = dest
+        # Clean up keys potentially added to ret[user] that aren't needed in final output per example
+        # (mode/destination were originally popped, implies they aren't wanted directly on the event)
+        ret[user].pop("mode", None)
+        ret[user].pop("destination", None)
+
+    # Convert processed data back to a list
+    processed_data = list(ret.values())
+
+    # Apply override number if applicable
+    for event in processed_data:
+        # Ensure 'contacts' dict exists and role matches before applying override
+        if (
+            override_number
+            and event.get("role") == "primary"
+            and "contacts" in event
+        ):
             event["contacts"]["call"] = override_number
             event["contacts"]["sms"] = override_number
 
-    cursor.close()
-    connection.close()
-    resp.body = json_dumps(data)
+    resp.text = json_dumps(processed_data)

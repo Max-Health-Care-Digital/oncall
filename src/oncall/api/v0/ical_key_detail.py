@@ -29,7 +29,7 @@ def on_get(req, resp, key):
     if not results:
         raise HTTPNotFound()
 
-    resp.body = json_dumps(results)
+    resp.text = json_dumps(results)
     resp.set_header("Content-Type", "application/json")
 
 

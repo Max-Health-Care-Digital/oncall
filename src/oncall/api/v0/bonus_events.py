@@ -116,7 +116,7 @@ class PaidEvents(object):
 
         oncall_bonus_teams = bonus_response.json()
 
-        for event in json.loads(resp.body):
+        for event in json.loads(resp.text):
             if event["role"].lower() == "manager":
                 continue
 
@@ -145,4 +145,4 @@ class PaidEvents(object):
                     ldap_grouping[event["user"]].append(event)
 
         resp.status = HTTP_200
-        resp.body = json_dumps(ldap_grouping)
+        resp.text = json_dumps(ldap_grouping)

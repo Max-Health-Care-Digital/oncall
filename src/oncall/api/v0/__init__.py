@@ -133,6 +133,8 @@ def init(application, config):
 
     from . import user_pinned_team, user_pinned_teams
 
+    "/api/v0/users/{user_name}/pinned_teams"
+
     application.add_route(
         "/api/v0/users/{user_name}/pinned_teams", user_pinned_teams
     )

@@ -37,23 +37,37 @@ def on_get(req, resp, team):
             "asmith"
         ]
     """
-    query = """SELECT `user`.`name` FROM `user`
-               JOIN `team_user` ON `team_user`.`user_id`=`user`.`id`
-               JOIN `team` ON `team`.`id`=`team_user`.`team_id`
-               WHERE `team`.`name`=%s"""
-    active = req.get_param("active")
-    query_params = [team]
-    if active:
-        query += " AND `team`.`active` = %s"
-        query_params.append(active)
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+        query = """SELECT `user`.`name` FROM `user`
+                   JOIN `team_user` ON `team_user`.`user_id`=`user`.`id`
+                   JOIN `team` ON `team`.`id`=`team_user`.`team_id`
+                   WHERE `team`.`name`=%s"""
 
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(query, query_params)
-    data = [r[0] for r in cursor]
-    cursor.close()
-    connection.close()
-    resp.body = json_dumps(data)
+        # Use a list for query parameters
+        query_params = [team]
+
+        # Handle optional active filter
+        # Use req.get_param_as_bool for robustness and check if it was provided
+        active = req.get_param_as_bool("active")
+        if active is not None:
+            query += " AND `team`.`active` = %s"
+            # Convert boolean to int (0 or 1) as expected by many DBs for boolean/TINYINT
+            query_params.append(int(active))
+
+        # Execute the query with parameters
+        cursor.execute(query, query_params)
+
+        # Fetch the data
+        data = [r[0] for r in cursor]
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit close calls are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'data' list
+    resp.text = json_dumps(data)
 
 
 @login_required
@@ -64,38 +78,63 @@ def on_post(req, resp, team):
     check_team_auth(team, req)
     data = load_json_body(req)
 
-    user_name = data.get("name")
+    user_name = data.get("name")  # Use .get
     if not user_name:
         raise HTTPError(
             "422 Unprocessable Entity",
-            "IntegrityError",
+            "Missing Parameter",  # More specific error type
             "name missing for user",
         )
 
-    connection = db.connect()
-    cursor = connection.cursor()
-    try:
-        cursor.execute(
-            """INSERT INTO `team_user` (`team_id`, `user_id`)
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+
+        try:
+            # Insert into team_user table using parameterized values in subqueries
+            cursor.execute(
+                """INSERT INTO `team_user` (`team_id`, `user_id`)
                           VALUES (
                               (SELECT `id` FROM `team` WHERE `name`=%s),
                               (SELECT `id` FROM `user` WHERE `name`=%s)
                           )""",
-            (team, user_name),
-        )
-        connection.commit()
-    except db.IntegrityError as e:
-        err_msg = str(e.args[1])
-        if err_msg == "Column 'user_id' cannot be null":
-            err_msg = "user %s not found" % user_name
-        elif err_msg == "Column 'team_id' cannot be null":
-            err_msg = "team %s not found" % team
-        elif "Duplicate entry" in err_msg:
-            err_msg = 'user name "%s" is already in team %s' % (user_name, team)
-        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
-    finally:
-        cursor.close()
-        connection.close()
+                (team, user_name),  # Parameterize team name and user name
+            )
+
+            # Commit the transaction if the insert succeeds
+            connection.commit()
+
+            # Fetch user data for the response body *inside* the with block
+            # Call get_user_data using the current connection and cursor (via dbinfo)
+            # This reuses the active connection instead of opening a new one.
+            user_details_for_response = get_user_data(
+                None, {"name": user_name}, dbinfo=(connection, cursor)
+            )[
+                0
+            ]  # Pass dbinfo=(connection, cursor)
+
+        except db.IntegrityError as e:
+            # The 'with' statement's __exit__ will automatically call rollback
+            # when an exception occurs within the block.
+            err_msg = str(e.args[1])
+            # Check for specific IntegrityError messages
+            if "Column 'user_id' cannot be null" in err_msg:
+                err_msg = f"user '{user_name}' not found"
+            elif "Column 'team_id' cannot be null" in err_msg:
+                err_msg = f"team '{team}' not found"
+            elif "Duplicate entry" in err_msg:
+                err_msg = f"user '{user_name}' is already in team '{team}'"
+            else:
+                # Generic fallback for other integrity errors
+                err_msg = f"Database Integrity Error: {err_msg}"
+
+            # Re-raise the exception after formatting the error message
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
+        # Any other exception raised in the try block will also trigger rollback and cleanup.
+        # The finally block is no longer needed for close calls.
 
     resp.status = HTTP_201
-    resp.body = json_dumps(get_user_data(None, {"name": user_name})[0])
+    # Use the user details fetched inside the with block
+    resp.text = json_dumps(user_details_for_response)

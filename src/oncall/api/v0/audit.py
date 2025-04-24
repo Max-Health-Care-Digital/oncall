@@ -6,11 +6,18 @@ from ujson import dumps as json_dumps
 from ... import db
 
 filters = {
+    # These filters use dictionary-style placeholders (%(name)s)
     "owner": "`owner_name` = %(owner)s",
     "team": "`team_name` = %(team)s",
+    # For the 'action' filter, the value passed via params will be a list/tuple,
+    # and the DBAPI driver will correctly format the IN clause.
     "action": "`action_name` IN %(action)s",
     "start": "`timestamp` >= %(start)s",
     "end": "`timestamp` <= %(end)s",
+    # Assuming the 'id' query param from the docstring is for audit.id
+    "id": "`audit`.`id` = %(id)s",
+    "id__eq": "`audit`.`id` = %(id__eq)s",
+    # Add other potential constraints if needed based on actual usage
 }
 
 
@@ -68,26 +75,63 @@ def on_get(req, resp):
     :query team: team name
     :query owner: action owner name
     :query action: name of action taken. If provided multiple action names,
-    :query id: id of the event
+    :query id: id of the event (assuming this means audit entry id)
     :query start: lower bound for audit entry's timestamp (unix timestamp)
     :query end: upper bound for audit entry's timestamp (unix timestamp)
     """
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
-    if "action" in req.params:
-        req.params["action"] = req.get_param_as_list("action")
+    # Preprocess parameters as needed before building the query or executing
+    request_params = (
+        req.params.copy()
+    )  # Work on a copy to avoid modifying req.params directly
+    if "action" in request_params:
+        # Ensure action is a list/tuple for the IN clause
+        action_value = request_params["action"]
+        if not isinstance(action_value, (list, tuple)):
+            request_params["action"] = [
+                action_value
+            ]  # Wrap single value in a list
+        # If it's already a list/tuple, use it as is.
 
     query = """SELECT `owner_name` AS `owner`, `team_name` AS `team`,
                    `action_name` AS `action`, `timestamp`, `context`
                FROM `audit`"""
-    where = " AND ".join(
-        filters[field] for field in req.params if field in filters
-    )
-    if where:
-        query = "%s WHERE %s" % (query, where)
 
-    cursor.execute(query, req.params)
-    results = cursor.fetchall()
-    cursor.close()
-    connection.close()
-    resp.body = json_dumps(results)
+    # Build WHERE clause using dictionary-style constraints
+    where_params_snippets = []
+    # Iterate through request_params keys, checking against filters
+    for field in request_params.keys():
+        if field in filters:
+            where_params_snippets.append(filters[field])
+        # else: Ignore unknown parameters
+
+    where_clause = (
+        " AND ".join(where_params_snippets) if where_params_snippets else "1"
+    )  # Use "1" for no WHERE conditions
+
+    # Combine query template and WHERE clause
+    # Note: Using dictionary parameters %(name)s means the query string
+    # is fully constructed here, but the values are passed separately
+    # to cursor.execute. This is correct and safe.
+    if where_clause != "1":
+        query = f"{query} WHERE {where_clause}"
+
+    # Add ordering for consistent results (optional but good practice)
+    # query += " ORDER BY `timestamp` DESC" # Example ordering
+
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        # Acquire a dictionary cursor
+        cursor = connection.cursor(db.DictCursor)
+
+        # Execute the query using the constructed query string and the request_params dictionary
+        cursor.execute(query, request_params)
+
+        # Fetch all results
+        results = cursor.fetchall()
+
+        # The connection and cursor will be automatically closed/released
+        # when the 'with' block exits, even if an error occurs.
+        # Explicit close calls are no longer needed.
+
+    # Continue processing outside the with block using the fetched 'results' list
+    resp.text = json_dumps(results)

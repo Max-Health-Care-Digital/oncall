@@ -34,7 +34,7 @@ def on_get(req, resp, team):
     if key is None:
         raise HTTPNotFound()
 
-    resp.body = key
+    resp.text = key
     resp.set_header("Content-Type", "text/plain")
 
 
@@ -55,7 +55,7 @@ def on_post(req, resp, team):
     update_ical_key(challenger, team, "team", key)
 
     resp.status = HTTP_201
-    resp.body = key
+    resp.text = key
     resp.set_header("Content-Type", "text/plain")
 
 

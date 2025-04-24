@@ -7,4 +7,4 @@ from ...constants import SUPPORTED_TIMEZONES
 
 
 def on_get(req, resp):
-    resp.body = json_dumps(SUPPORTED_TIMEZONES)
+    resp.text = json_dumps(SUPPORTED_TIMEZONES)

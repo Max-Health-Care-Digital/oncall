@@ -2,6 +2,7 @@
 # See LICENSE in the project root for license information.
 
 import time
+import uuid  # Need to import uuid if gen_link_id uses it
 
 from falcon import HTTP_201, HTTPBadRequest, HTTPError
 from ujson import dumps as json_dumps
@@ -63,109 +64,205 @@ def on_post(req, resp):
     :statuscode 400: Event validation checks failed
     :statuscode 422: Event creation failed: nonexistent role/event/team
     """
-    events = load_json_body(req)
-    if not isinstance(events, list):
+    events_list = load_json_body(req)  # Renamed variable
+    if not isinstance(events_list, list):
         raise HTTPBadRequest(
             "Invalid argument", "events argument needs to be a list"
         )
-    if not events:
+    if not events_list:
         raise HTTPBadRequest("Invalid argument", "events list cannot be empty")
 
-    now = time.time()
-    team = events[0].get("team")
-    if not team:
-        raise HTTPBadRequest("Invalid argument", "event missing team attribute")
-    check_calendar_auth(team, req)
+    # Basic validation before DB interaction: check first event for team
+    first_event = events_list[0]
+    team_name = first_event.get("team")
+    if not team_name:
+        raise HTTPBadRequest(
+            "Invalid argument", "First event missing team attribute"
+        )
 
-    event_values = []
+    # Check calendar auth for the team
+    check_calendar_auth(team_name, req)
+
+    # Generate a single link_id for all events
     link_id = gen_link_id()
 
-    connection = db.connect()
-    cursor = connection.cursor()
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()  # Use standard cursor
 
-    columns = (
-        "`start`",
-        "`end`",
-        "`user_id`",
-        "`team_id`",
-        "`role_id`",
-        "`link_id`, `note`",
-    )
+        try:
+            # 1. Get team ID and validate team existence
+            cursor.execute(
+                "SELECT `id` FROM `team` WHERE `name`=%s", (team_name,)
+            )  # Parameterize team name
+            team_row = cursor.fetchone()
+            if not team_row:
+                # Raise HTTPBadRequest within the with block
+                raise HTTPBadRequest(
+                    "Invalid event", f"Invalid team name: {team_name}"
+                )
+            team_id = team_row[0]
 
-    try:
-        cursor.execute("SELECT `id` FROM `team` WHERE `name`=%s", team)
-        team_id = cursor.fetchone()
-        if not team_id:
-            raise HTTPBadRequest(
-                "Invalid event", "Invalid team name: %s" % team
+            # 2. Prepare data and validate each event in the list
+            event_values_for_executemany = []  # List of tuples for executemany
+            now = time.time()  # Get current time once
+
+            # Define the INSERT query template with %s placeholders for executemany
+            # The order of columns and values placeholders MUST match the order of items in the tuple
+            insert_query_template = """
+                INSERT INTO `event`
+                (`start`, `end`, `user_id`, `team_id`, `role_id`, `link_id`, `note`)
+                VALUES (
+                    %s, -- start
+                    %s, -- end
+                    (SELECT `id` FROM `user` WHERE `name`=%s), -- user name for subquery
+                    %s, -- team_id
+                    (SELECT `id` FROM `role` WHERE `name`=%s), -- role name for subquery
+                    %s, -- link_id
+                    %s  -- note
+                )
+            """  # This template requires 7 parameters per row
+
+            for (
+                ev
+            ) in (
+                events_list
+            ):  # Iterate through the list of events from request body
+                # Validate individual event fields and values
+                # Ensure required fields are present in each event dict
+                required_event_fields = {"start", "end", "user", "role"}
+                if not required_event_fields.issubset(ev.keys()):
+                    missing = required_event_fields - ev.keys()
+                    raise HTTPBadRequest(
+                        "Invalid event",
+                        f"Event missing required parameters: {', '.join(missing)}",
+                    )
+
+                # Validate timestamps
+                try:
+                    ev_start = int(ev["start"])
+                    ev_end = int(ev["end"])
+                except (ValueError, TypeError):
+                    raise HTTPBadRequest(
+                        "Invalid event",
+                        "Event start and end timestamps must be integers",
+                    )
+
+                if ev_start < now - constants.GRACE_PERIOD:
+                    raise HTTPBadRequest(
+                        "Invalid event",
+                        "Creating events in the past not allowed",
+                    )
+                if ev_start >= ev_end:
+                    raise HTTPBadRequest(
+                        "Invalid event", "Event must start before it ends"
+                    )
+
+                # Validate team consistency
+                ev_team = ev.get("team")  # Use .get
+                if not ev_team:
+                    raise HTTPBadRequest(
+                        "Invalid event", "Missing team for an event"
+                    )
+                if team_name != ev_team:
+                    raise HTTPBadRequest(
+                        "Invalid event",
+                        "Events can only be submitted to one team",
+                    )
+
+                # Validate user membership in the team using the current cursor
+                # Assuming user_in_team_by_name takes a cursor
+                if not user_in_team_by_name(cursor, ev["user"], team_name):
+                    raise HTTPBadRequest(
+                        "Invalid event",
+                        f"User '{ev['user']}' must be part of the team '{team_name}'",
+                    )
+
+                # Validate note field if present
+                ev_note = ev.get("note")
+                if ev_note is not None and not isinstance(ev_note, str):
+                    raise HTTPBadRequest(
+                        "Invalid event", "Event note must be a string or null"
+                    )
+
+                # *** FIX: Prepare the tuple for executemany to match the query template ***
+                # The tuple needs 7 items corresponding to the 7 placeholders (%s) in the template
+                event_values_for_executemany.append(
+                    (
+                        ev_start,  # 1st %s: start time
+                        ev_end,  # 2nd %s: end time
+                        ev["user"],  # 3rd %s: user name for SELECT subquery
+                        team_id,  # 4th %s: team_id (already fetched ID)
+                        ev["role"],  # 5th %s: role name for SELECT subquery
+                        link_id,  # 6th %s: link_id
+                        ev_note,  # 7th %s: note (or None)
+                    )
+                )
+
+            # 3. Execute batch insert using executemany
+            # *** FIX: Use the query template and the list of tuples ***
+            if (
+                event_values_for_executemany
+            ):  # Only execute if there are events to insert
+                cursor.executemany(
+                    insert_query_template, event_values_for_executemany
+                )
+
+            # 4. Commit the transaction if all inserts succeed
+            # The try block implicitly starts here. Exceptions trigger rollback via 'with'.
+            connection.commit()
+
+            # 5. Fetch the IDs of the newly created events using the link_id
+            cursor.execute(
+                "SELECT `id` FROM `event` WHERE `link_id`=%s ORDER BY `start`",
+                (link_id,),  # Parameterize link_id
             )
+            new_event_ids = [row[0] for row in cursor]  # Fetch new event IDs
 
-        values = [
-            "%s",
-            "%s",
-            "(SELECT `id` FROM `user` WHERE `name`=%s)",
-            "%s",
-            "(SELECT `id` FROM `role` WHERE `name`=%s)",
-            "%s",
-            "%s",
-        ]
+        except db.IntegrityError as e:
+            # The 'with' statement's __exit__ will automatically call rollback.
+            err_msg = str(e.args[1])
+            # Check for specific IntegrityError messages (likely from subqueries failing or unique constraints)
+            if "Column 'role_id' cannot be null" in err_msg:
+                # Role name in an event didn't resolve to an ID
+                # Try to identify which role name caused it if possible, or use a generic message
+                # The error message might contain clues from the query or parameters.
+                # Example: if the error mentions a specific role name value that was attempted.
+                # Without specific DB driver error codes/messages, generic messages based on common causes are safer.
+                # Assume the error occurred because a role name didn't exist.
+                err_msg = (
+                    f"One or more role names in the events were not found."
+                )
+            elif "Column 'user_id' cannot be null" in err_msg:
+                # User name in an event didn't resolve to an ID
+                err_msg = (
+                    f"One or more user names in the events were not found."
+                )
+            elif "Column 'team_id' cannot be null" in err_msg:
+                # Team name in an event didn't resolve to an ID (should be caught by initial check, but defensive)
+                err_msg = f"One or more team names in the events were not found. (Integrity Error)"
+            # Add other potential IntegrityError checks if applicable (e.g., unique constraints if link_id+start+end+user+role should be unique)
+            else:
+                # Generic fallback for other integrity errors
+                err_msg = (
+                    f"Database Integrity Error during event creation: {err_msg}"
+                )
 
-        for ev in events:
-            if ev["start"] < now - constants.GRACE_PERIOD:
-                raise HTTPBadRequest(
-                    "Invalid event", "Creating events in the past not allowed"
-                )
-            if ev["start"] >= ev["end"]:
-                raise HTTPBadRequest(
-                    "Invalid event", "Event must start before it ends"
-                )
-            ev_team = ev.get("team")
-            if not ev_team:
-                raise HTTPBadRequest("Invalid event", "Missing team for event")
-            if team != ev_team:
-                raise HTTPBadRequest(
-                    "Invalid event", "Events can only be submitted to one team"
-                )
-            if not user_in_team_by_name(cursor, ev["user"], team):
-                raise HTTPBadRequest(
-                    "Invalid event",
-                    "User %s must be part of the team %s" % (ev["user"], team),
-                )
-            event_values.append(
-                (
-                    ev["start"],
-                    ev["end"],
-                    ev["user"],
-                    team_id,
-                    ev["role"],
-                    link_id,
-                    ev.get("note"),
-                )
-            )
+            # Re-raise the exception after formatting the error message
+            raise HTTPError(
+                "422 Unprocessable Entity", "IntegrityError", err_msg
+            ) from e
+        except (
+            Exception
+        ) as e:  # Catch any other unexpected exceptions during the transaction
+            # The with statement handles rollback automatically.
+            print(
+                f"Error during linked event creation for link ID {link_id}: {e}"
+            )  # Replace with logging
+            raise  # Re-raise the exception
 
-        insert_query = "INSERT INTO `event` (%s) VALUES (%s)" % (
-            ",".join(columns),
-            ",".join(values),
-        )
-        cursor.executemany(insert_query, event_values)
-        connection.commit()
-        cursor.execute(
-            "SELECT `id` FROM `event` WHERE `link_id`=%s ORDER BY `start`",
-            link_id,
-        )
-        ev_ids = [row[0] for row in cursor]
-    except db.IntegrityError as e:
-        err_msg = str(e.args[1])
-        if err_msg == "Column 'role_id' cannot be null":
-            err_msg = "role not found"
-        elif err_msg == "Column 'user_id' cannot be null":
-            err_msg = "user not found"
-        elif err_msg == "Column 'team_id' cannot be null":
-            err_msg = 'team "%s" not found' % team
-        raise HTTPError("422 Unprocessable Entity", "IntegrityError", err_msg)
-    finally:
-        cursor.close()
-        connection.close()
+        # Do not need finally block; rely on the 'with' statement.
 
     resp.status = HTTP_201
-    resp.body = json_dumps({"link_id": link_id, "event_ids": ev_ids})
+    # Respond with the generated link_id and the IDs of the new events
+    resp.text = json_dumps({"link_id": link_id, "event_ids": new_event_ids})

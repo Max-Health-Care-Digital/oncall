@@ -8,6 +8,6 @@ from ... import iris
 
 def on_get(req, resp):
     if iris.settings is None:
-        resp.body = json_dumps({"activated": False})
+        resp.text = json_dumps({"activated": False})
     else:
-        resp.body = json_dumps(iris.settings)
+        resp.text = json_dumps(iris.settings)

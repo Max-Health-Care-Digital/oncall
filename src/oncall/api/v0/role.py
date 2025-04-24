@@ -1,10 +1,8 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import (
-    HTTP_204,  # Added HTTP_204 for successful delete
-    HTTPNotFound,
-)
+from falcon import HTTP_204  # Added HTTP_204 for successful delete
+from falcon import HTTPNotFound
 
 from ... import db
 from ...auth import debug_only  # Assuming debug_only is a valid decorator

@@ -3,10 +3,8 @@
 
 from urllib.parse import unquote
 
-from falcon import (
-    HTTP_204,  # Added HTTP_204 for successful delete
-    HTTPNotFound,
-)
+from falcon import HTTP_204  # Added HTTP_204 for successful delete
+from falcon import HTTPNotFound
 from ujson import dumps as json_dumps
 
 from ... import db

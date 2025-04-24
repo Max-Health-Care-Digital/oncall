@@ -327,7 +327,7 @@ def on_put(req, resp, schedule_id):
 def on_delete(req, resp, schedule_id):
     """
     Delete a schedule by id. Only allowed for team admins.
-    
+
     **Example request:**
 
     .. sourcecode:: http

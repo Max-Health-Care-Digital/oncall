@@ -3,10 +3,8 @@
 
 from urllib.parse import unquote
 
-from falcon import (
-    HTTP_204,  # Added HTTP_204 for successful delete
-    HTTPNotFound,
-)
+from falcon import HTTP_204  # Added HTTP_204 for successful delete
+from falcon import HTTPNotFound
 
 from ... import db
 from ...auth import check_team_auth, login_required

@@ -1,12 +1,8 @@
 # Copyright (c) LinkedIn Corporation. All rights reserved. Licensed under the BSD-2 Clause license.
 # See LICENSE in the project root for license information.
 
-from falcon import (
-    HTTP_204,
-    HTTPBadRequest,  # Added HTTP_204, HTTPBadRequest
-    HTTPError,
-    HTTPNotFound,
-)
+from falcon import HTTPBadRequest  # Added HTTP_204, HTTPBadRequest
+from falcon import HTTP_204, HTTPError, HTTPNotFound
 from ujson import dumps
 
 from ... import db

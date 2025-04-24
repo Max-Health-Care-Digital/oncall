@@ -66,30 +66,73 @@ def blackhole(msg):
 
 
 def mark_message_as_sent(msg_info):
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(
-        "UPDATE `notification_queue` SET `active` = 0, `sent` = 1 WHERE `id` = %s",
-        msg_info["id"],
-    )
-    connection.commit()
-    connection.close()
-    cursor.close()
+    """
+    Marks a notification queue entry as sent.
+    """
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+
+        try:
+            # Execute the UPDATE query using parameterized ID
+            cursor.execute(
+                "UPDATE `notification_queue` SET `active` = 0, `sent` = 1 WHERE `id` = %s",
+                (
+                    msg_info.get("id"),
+                ),  # Use .get for safety, parameterize ID as a tuple
+            )
+
+            # Commit the transaction if the update succeeds
+            # The try block implicitly starts here. Exceptions trigger rollback via 'with'.
+            connection.commit()
+
+        except Exception as e:  # Catch any exceptions during the DB transaction
+            # The with statement handles rollback automatically if an exception is raised within the block before commit.
+            logger.error(
+                f"Error marking message as sent for ID {msg_info.get('id')}: {e}"
+            )  # Replace with logging
+            # Re-raise the exception if needed for upstream handling
+            raise
+
+        # Do not need explicit close calls or finally block; rely on the 'with' statement.
 
 
 def mark_message_as_unsent(msg_info):
-    connection = db.connect()
-    cursor = connection.cursor()
-    cursor.execute(
-        "UPDATE `notification_queue` SET `active` = 0, `sent` = 0 WHERE `id` = %s",
-        msg_info["id"],
-    )
-    connection.commit()
-    connection.close()
-    cursor.close()
+    """
+    Marks a notification queue entry as unsent.
+    """
+    # Use the 'with' statement for safe connection and transaction management
+    with db.connect() as connection:
+        cursor = connection.cursor()
+
+        try:
+            # Execute the UPDATE query using parameterized ID
+            cursor.execute(
+                "UPDATE `notification_queue` SET `active` = 0, `sent` = 0 WHERE `id` = %s",
+                (
+                    msg_info.get("id"),
+                ),  # Use .get for safety, parameterize ID as a tuple
+            )
+
+            # Commit the transaction if the update succeeds
+            # The try block implicitly starts here. Exceptions trigger rollback via 'with'.
+            connection.commit()
+
+        except Exception as e:  # Catch any exceptions during the DB transaction
+            # The with statement handles rollback automatically if an exception is raised within the block before commit.
+            logger.error(
+                f"Error marking message as unsent for ID {msg_info.get('id')}: {e}"
+            )  # Replace with logging
+            # Re-raise the exception if needed for upstream handling
+            raise
+
+        # Do not need explicit close calls or finally block; rely on the 'with' statement.
 
 
 def poll():
+    """
+    Polls the notification queue for active messages to send.
+    """
     query = """SELECT `user`.`name` AS `user`, `contact_mode`.`name` AS `mode`, `notification_queue`.`send_time`,
                       `user`.`time_zone`,`notification_type`.`subject`, `notification_queue`.`context`,
                       `notification_type`.`body`, `notification_queue`.`id`
@@ -97,15 +140,40 @@ def poll():
                    JOIN `contact_mode` ON `notification_queue`.`mode_id` = `contact_mode`.`id`
                    JOIN `notification_type` ON `notification_queue`.`type_id` = `notification_type`.`id`
                WHERE `notification_queue`.`active` = 1 AND `notification_queue`.`send_time` <= UNIX_TIMESTAMP()"""
+
+    # Assuming logger is defined elsewhere
     logger.info("[-] start send task...")
 
-    connection = db.connect()
-    cursor = connection.cursor(db.DictCursor)
-    cursor.execute(query)
-    for row in cursor:
-        send_queue.put(row)
-    cursor.close()
-    connection.close()
+    # Use the 'with' statement for safe connection management
+    with db.connect() as connection:
+        cursor = connection.cursor(
+            db.DictCursor
+        )  # Use DictCursor for fetching data
+
+        try:
+            # Execute the query (no parameters needed)
+            cursor.execute(query)
+
+            # Iterate through results and put them in the send queue
+            # This loop happens *within* the with block while the cursor is active
+            for row in cursor:
+                # Assuming send_queue is a Queue object defined elsewhere
+                send_queue.put(row)
+
+            # The connection and cursor will be automatically closed/released
+            # when the 'with' block exits (after the loop finishes or an exception occurs).
+
+        except (
+            Exception
+        ) as e:  # Catch any exceptions during query execution or iteration
+            # The with statement handles rollback automatically.
+            logger.error(
+                f"Error polling notification queue: {e}"
+            )  # Replace with logging
+            # Re-raise the exception if needed for upstream handling
+            raise
+
+        # Do not need explicit close calls or finally block; rely on the 'with' statement.
 
 
 def worker():

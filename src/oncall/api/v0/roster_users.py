@@ -68,7 +68,7 @@ def on_get(req, resp, team, roster):
 def on_post(req, resp, team, roster):
     """
     Add user to a roster for a team. On successful creation, returns that user's information.
-    
+
     **Example request**:
 
     .. sourcecode:: http

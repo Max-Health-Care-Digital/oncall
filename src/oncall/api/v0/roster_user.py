@@ -17,7 +17,23 @@ from ...utils import create_audit, load_json_body, unsubscribe_notifications
 def on_delete(req, resp, team, roster, user):
     """
     Delete user from roster
-    ... (docstring unchanged) ...
+    **Example request**:
+
+    .. sourcecode:: http
+
+        DELETE /v0/api/teams/team_foo/rosters/best_coast/users/user1 HTTP/1.1
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        []
+
+    :statuscode 200: no error, user deleted from roster.
+    :statuscode 404: roster not found.
     """
     try:
         team, roster, user = unquote(team), unquote(roster), unquote(user)
@@ -148,7 +164,26 @@ def on_delete(req, resp, team, roster, user):
 def on_put(req, resp, team, roster, user):
     """
     Put a user into/out of rotation within a given roster
-    ... (docstring unchanged) ...
+    **Example request**:
+
+    .. sourcecode:: http
+
+        PUT /v0/api/teams/team_foo/rosters/best_coast/users/user1 HTTP/1.1
+        Content-Type: application/json
+
+        {"in_rotation": false}
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        []
+
+    :statuscode 200: no error, user status udpated.
+    :statuscode 400: invalid request, missing field "in_rotation".
     """
     try:
         team, roster, user = unquote(team), unquote(roster), unquote(user)

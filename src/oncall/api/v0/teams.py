@@ -60,7 +60,39 @@ def on_get(req, resp):
     Returns list of matching team names. If "active" parameter is unspecified, defaults to
     True (only displaying undeleted teams)
 
-    ... (docstring remains the same) ...
+    :query name: team name
+    :query name__eq: team name
+    :query name__contains: team name contains param
+    :query name__startswith: team name starts with param
+    :query name__endswith: team name ends with param
+    :query id: team id
+    :query id__eq: team id
+    :query active: team active/deleted (1 and 0, respectively)
+    :query email: team email
+    :query email__eq: team email
+    :query email__contains: team email contains param
+    :query email__startswith: team email starts with param
+    :query email__endswith: team email ends with param
+
+    **Example request**:
+
+    .. sourcecode:: http
+
+       GET /api/v0/teams?name__startswith=team-  HTTP/1.1
+       Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        [
+            "team-foo",
+            "team-bar"
+        ]
+
     """
 
     # Base query - note: selecting both name and id as required by subsequent logic
@@ -130,7 +162,45 @@ def on_post(req, resp):
     team admin. Because of this, this endpoint cannot be called using an API key, otherwise
     a team would have no admins, making many team operations impossible.
 
-    ... (docstring remains the same) ...
+    Teams can specify a number of attributes, detailed below:
+
+    - name: the team's name. Teams must have unique names.
+    - email: email address for the team.
+    - slack_channel: slack channel for the team. Must start with '#'
+    - slack_channel_notifications: slack channel for notifications. Must start with '#'
+    - iris_plan: Iris escalation plan that incidents created from the Oncall UI will follow.
+
+    If iris plan integration is not activated, this attribute can still be set, but its
+    value is not used.
+
+    Teams must specify ``name`` and ``scheduling_timezone``; other parameters are optional.
+
+    **Example request:**
+
+    .. sourcecode:: http
+
+        POST api/v0/teams   HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "name": "team-foo",
+            "scheduling_timezone": "US/Pacific",
+            "email": "team-foo@example.com",
+            "slack_channel": "#team-foo",
+            "slack_channel_notifications": "#team-foo-alerts",
+            "admin": "user_foo"
+        }
+
+    **Example response:**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 201 Created
+        Content-Type: application/json
+
+    :statuscode 201: Successful create
+    :statuscode 400: Error in creating team. Possible errors: API key auth not allowed, invalid attributes, missing required attributes
+    :statuscode 422: Duplicate team name
     """
 
     data = load_json_body(req)

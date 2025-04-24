@@ -95,7 +95,14 @@ def on_delete(req, resp, notification_id):
 def on_put(req, resp, notification_id):
     """
     Edit user notification settings. Allows editing of the following attributes:
-    ... (docstring content unchanged) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        DELETE /api/v0/notifications/1234  HTTP/1.1
+
+    :statuscode 200: Successful delete
+    :statuscode 404: Notification setting not found
     """
     data = load_json_body(req)
     params = list(data.keys())  # Use list for ordered iteration if needed later

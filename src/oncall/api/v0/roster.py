@@ -20,7 +20,49 @@ def on_get(req, resp, team, roster):
     """
     Get user and schedule info for a roster
 
-    ... (docstring remains the same) ...
+    **Example request**:
+
+    .. sourcecode:: http
+
+       GET /api/v0/teams/foo-sre/rosters HTTP/1.1
+       Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+       HTTP/1.1 200 OK
+       Content-Type: application/json
+
+       {
+         "Managers": {
+           "id": 2730,
+           "users": [
+             {
+               "in_rotation": true,
+               "name": "foo"
+             }
+           ],
+           "schedules": [
+             {
+               "auto_populate_threshold": 0,
+               "roster": "Managers",
+               "advanced_mode": 0,
+               "role": "manager",
+               "team": "foo-sre",
+               "events": [
+                 {
+                   "duration": 604800,
+                   "start": 367200
+                 }
+               ],
+               "id": 1704
+             }
+           ]
+         }
+       }
+
+    :statuscode 200: no error
     """
     team_name, roster_name = unquote(team), unquote(roster)  # Renamed variables
 
@@ -86,7 +128,19 @@ def on_put(req, resp, team, roster):
     """
     Change roster name. Must have team admin privileges.
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        PUT /api/v0/teams/team-foo/rosters/roster-foo HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "name": "roster-bar",
+        }
+
+    :statuscode 400: Invalid roster name, disallowed characters
+    :statuscode 422: Duplicate roster name for team
     """
     team_name, roster_name = unquote(team), unquote(roster)  # Renamed variables
     data = load_json_body(req)

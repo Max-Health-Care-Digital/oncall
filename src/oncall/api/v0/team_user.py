@@ -65,7 +65,14 @@ def on_delete(req, resp, team, user):
     """
     Delete user from a team
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        DELETE /api/v0/teams/team-foo/users/jdoe HTTP/1.1
+
+    :statuscode 200: Successful delete
+    :statuscode 404: User not found in team
     """
     team_name = unquote(team)  # Renamed variable
     user_name = user  # Renamed variable (user is already unquoted by Falcon)

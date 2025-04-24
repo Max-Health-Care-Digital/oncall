@@ -65,7 +65,26 @@ def on_delete(req, resp, team, service):
     """
     Delete service team mapping. Only allowed for team admins.
 
-    ... (docstring remains the same) ...
+    **Example request**:
+
+    .. sourcecode:: http
+
+        GET /api/v0/team_services  HTTP/1.1
+        Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        [
+            {
+                "team": "team1",
+                "service" : "service-foo"
+            }
+        ]
     """
     team_name = unquote(team)  # Renamed variable
     service_name = unquote(service)  # Renamed variable

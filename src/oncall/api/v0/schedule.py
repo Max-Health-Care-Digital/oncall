@@ -71,7 +71,43 @@ def verify_auth(req, schedule_id, cursor):
 
 # --- on_get remains unchanged, assuming get_schedules is refactored elsewhere ---
 def on_get(req, resp, schedule_id):
-    # ... (on_get code is unchanged) ...
+    """
+    Get schedule information. Detailed information on schedule parameters is provided in the
+    POST method for /api/v0/team/{team_name}/rosters/{roster_name}/schedules.
+
+    **Example request**:
+
+    .. sourcecode:: http
+
+        GET /api/v0/schedules/1234  HTTP/1.1
+        Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+            {
+                "advanced_mode": 1,
+                "auto_populate_threshold": 30,
+                "events": [
+                    {
+                        "duration": 259200,
+                        "start": 0
+                    }
+                ],
+                "id": 1234,
+                "role": "primary",
+                "role_id": 1,
+                "roster": "roster-foo",
+                "roster_id": 2922,
+                "team": "asdf",
+                "team_id": 2121,
+                "timezone": "US/Pacific"
+            }
+    """
     resp.text = json_dumps(
         get_schedules(
             {"id": schedule_id}, fields=req.get_param_as_list("fields")
@@ -83,8 +119,32 @@ def on_get(req, resp, schedule_id):
 def on_put(req, resp, schedule_id):
     """
     Update a schedule. Allows editing of role, team, roster, auto_populate_threshold,
-    events, and advanced_mode.
-    ... (rest of docstring unchanged) ...
+    events, and advanced_mode.Only allowed for team admins. Note that simple mode
+    schedules must conform to simple schedule restrictions (described in documentation
+    for the /api/v0/team/{team_name}/rosters/{roster_name}/schedules GET endpoint).
+    This is checked on both "events" and "advanced_mode" edits.
+
+    **Example request:**
+
+    .. sourcecode:: http
+
+        PUT /api/v0/schedules/1234 HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "role": "primary",
+            "team": "team-bar",
+            "roster": "roster-bar",
+            "auto_populate_threshold": 28,
+            "events":
+                [
+                    {
+                        "start": 0,
+                        "duration": 100
+                    }
+                ]
+            "advanced_mode": 1
+        }
     """
     try:
         # Ensure schedule_id is an integer early on
@@ -267,7 +327,15 @@ def on_put(req, resp, schedule_id):
 def on_delete(req, resp, schedule_id):
     """
     Delete a schedule by id. Only allowed for team admins.
-    ... (rest of docstring unchanged) ...
+    
+    **Example request:**
+
+    .. sourcecode:: http
+
+        DELETE /api/v0/schedules/1234 HTTP/1.1
+
+    :statuscode 200: Successful delete
+    :statuscode 404: Schedule not found
     """
     try:
         schedule_id_int = int(schedule_id)

@@ -520,7 +520,65 @@ def on_get(req, resp, team, roster):
     in the schedules POST endpoint documentation. Schedules can be filtered with
     the following parameters passed in the query string:
 
-    ... (docstring remains the same) ...
+    :query id: id of the schedule
+    :query id__eq: id of the schedule
+    :query id__gt: id greater than
+    :query id__ge: id greater than or equal
+    :query id__lt: id less than
+    :query id__le: id less than or equal
+    :query name: schedule name
+    :query name__eq: schedule name
+    :query name__contains: schedule name contains param
+    :query name__startswith: schedule name starts with param
+    :query name__endswith: schedule name ends with param
+    :query role: schedule role name
+    :query role__eq: schedule role name
+    :query role__contains: schedule role name contains param
+    :query role__startswith: schedule role name starts with param
+    :query role__endswith: schedule role name ends with param
+    :query team: schedule team name
+    :query team__eq: schedule team name
+    :query team__contains: schedule team name contains param
+    :query team__startswith: schedule team name starts with param
+    :query team__endswith: schedule team name ends with param
+    :query team_id: id of the schedule's team
+    :query roster_id: id of the schedule's roster
+
+
+    **Example request**:
+
+    .. sourcecode:: http
+
+        GET /api/v0/teams/team-foo/rosters/roster-foo/schedules  HTTP/1.1
+        Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        [
+            {
+                "advanced_mode": 1,
+                "auto_populate_threshold": 30,
+                "events": [
+                    {
+                        "duration": 259200,
+                        "start": 0
+                    }
+                ],
+                "id": 2065,
+                "role": "primary",
+                "role_id": 1,
+                "roster": "roster-foo",
+                "roster_id": 2922,
+                "team": "team-foo",
+                "team_id": 2121,
+                "timezone": "US/Pacific"
+            }
+        ]
     """
     team_name = unquote(team)  # Renamed variable
     roster_name = unquote(roster)  # Renamed variable
@@ -561,7 +619,93 @@ def on_post(req, resp, team, roster):
     the role that the populated events shoud have. The ``auto_populate_threshold`` parameter
     defines how far into the future the scheduler populates.
 
-    ... (rest of docstring unchanged) ...
+    Finally, each schedule has a list of events, each defining ``start`` and ``duration``. ``start``
+    represents an offset from Sunday at 00:00 in the team's scheduling timezone, in seconds. For
+    example, denote DAY and HOUR as the number of seconds in a day/hour, respectively. An
+    event with ``start`` of (DAY + 9 * HOUR) starts on Monday, at 9:00 am. Duration is also given
+    in seconds.
+
+    The scheduler will start at Sunday 00:00 in the team's scheduling timezone, choose a user,
+    and populate events on the calendar according to the offsets defined in the events list.
+    It then repeats this process, moving to the next Sunday 00:00 after the events it has
+    created.
+
+    ``advanced_mode`` acts as a hint to the frontend on how the schedule should be displayed,
+    defining whether the advanced mode toggle on the schedule edit action should be set on or off.
+    Because of how the frontend displays simple schedules, a schedule can only have advanced_mode = 0
+    if its events have one of 4 formats:
+
+    1. One event that is one week long
+    2. One event that is two weeks long
+    3. Seven events that are 12 hours long
+    4. Fourteen events that are 12 hours long
+
+    See below for sample JSON requests.
+
+    Assume these schedules' team defines US/Pacific as its scheduling timezone.
+
+    Weekly 7*24 shift that starts at Monday 6PM PST:
+
+    .. code-block:: javascript
+
+        {
+            'role': 'primary'
+            'auto_populate_threshold': 21,
+            'events':[
+                {'start': SECONDS_IN_A_DAY + 18 * SECONDS_IN_AN_HOUR,
+                 'duration': SECONDS_IN_A_WEEK}
+            ],
+            'advanced_mode': 0
+        }
+
+    Weekly 7*12 shift that starts at Monday 8AM PST:
+
+    .. code-block:: javascript
+
+        {
+            'role': 'oncall',
+            'events':[
+                {'start': SECONDS_IN_A_DAY + 8 * SECONDS_IN_AN_HOUR,
+                 'duration': 12 * SECONDS_IN_AN_HOUR},
+                {'start': 2 * SECONDS_IN_A_DAY + 8 * SECONDS_IN_AN_HOUR,
+                 'duration': 12 * SECONDS_IN_AN_HOUR} ... *5 more*
+            ],
+            'advanced_mode': 1
+        }
+
+    **Example Request**
+
+    .. sourcecode:: http
+
+        POST /v0/teams/team-foo/rosters/roster-foo/schedules   HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "advanced_mode": 0,
+            "auto_populate_threshold": "21",
+            "events": [
+                {
+                    "duration": 604800,
+                    "start": 129600
+                }
+            ],
+            "role": "primary",
+        }
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 201 OK
+        Content-Type: application/json
+
+        {
+            "id": 2221
+        }
+
+    :statuscode 201: Successful schedule create. Response contains created schedule's id.
+    :statuscode 400: Missing required parameters
+    :statuscode 422: Invalid roster specified
     """
     # Load and initially process data
     try:

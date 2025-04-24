@@ -39,7 +39,34 @@ def on_get(req, resp, event_id):
     """
     Get event by id.
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        GET /api/v0/events/1234 HTTP/1.1
+        Host: example.com
+
+    **Example response:**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        {
+            "end": 1428336000,
+            "full_name": "John Doe",
+            "id": 1234,
+            "link_id": null,
+            "role": "primary",
+            "schedule_id": 4321,
+            "start": 1427731200,
+            "team": "team-foo",
+            "user": "jdoe"
+        }
+
+    :statuscode 200: no error
+    :statuscode 404: Event not found
     """
     # Ensure event_id is an integer
     try:
@@ -100,7 +127,21 @@ def on_put(req, resp, event_id):
     """
     Update an event by id; anyone can update any event within the team
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        PUT /api/v0/events/1234 HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "start": 1428336000,
+            "end": 1428338000,
+            "user": "asmith",
+            "role": "secondary"
+        }
+
+    :statuscode 200: Successful update
     """
     # Ensure event_id is an integer
     try:
@@ -367,7 +408,15 @@ def on_delete(req, resp, event_id):
     """
     Delete an event by id, anyone on the team can delete that team's events
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+       DELETE /api/v0/events/1234 HTTP/1.1
+
+    :statuscode 200: Successful delete
+    :statuscode 403: Delete not allowed; logged in user is not a team member
+    :statuscode 404: Event not found
     """
     # Ensure event_id is an integer
     try:

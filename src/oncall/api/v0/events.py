@@ -95,7 +95,75 @@ def on_get(req, resp):
     Search for events. Allows filtering based on a number of parameters,
     detailed below.
 
-    ... (docstring remains the same) ...
+     **Example request**:
+
+    .. sourcecode:: http
+
+       GET /api/v0/events?team=foo-sre&end__gt=1487466146&role=primary HTTP/1.1
+       Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        [
+            {
+                "start": 1488441600,
+                "end": 1489132800,
+                "team": "foo-sre",
+                "link_id": null,
+                "schedule_id": null,
+                "role": "primary",
+                "user": "foo",
+                "full_name": "Foo Icecream",
+                "id": 187795
+            },
+            {
+                "start": 1488441600,
+                "end": 1489132800,
+                "team": "foo-sre",
+                "link_id": "8a8ae77b8c52448db60c8a701e7bffc2",
+                "schedule_id": 123,
+                "role": "primary",
+                "user": "bar",
+                "full_name": "Bar Apple",
+                "id": 187795
+            }
+        ]
+
+    :query team: team name
+    :query user: user name
+    :query role: role name
+    :query id: id of the event
+    :query start: start time (unix timestamp) of event
+    :query end: end time (unix timestamp) of event
+    :query start__gt: start time (unix timestamp) greater than
+    :query start__ge: start time (unix timestamp) greater than or equal
+    :query start__lt: start time (unix timestamp) less than
+    :query start__le: start time (unix timestamp) less than or equal
+    :query end__gt: end time (unix timestamp) greater than
+    :query end__ge: end time (unix timestamp) greater than or equal
+    :query end__lt: end time (unix timestamp) less than
+    :query end__le: end time (unix timestamp) less than or equal
+    :query role__eq: role name
+    :query role__contains: role name contains param
+    :query role__startswith: role name starts with param
+    :query role__endswith: role name ends with param
+    :query team__eq: team name
+    :query team__contains: team name contains param
+    :query team__startswith: team name starts with param
+    :query team__endswith: team name ends with param
+    :query team_id: team id
+    :query user__eq: user name
+    :query user__contains: user name contains param
+    :query user__startswith: user name starts with param
+    :query user__endswith: user name ends with param
+
+    :statuscode 200: no error
+    :statuscode 400: bad request
     """
     fields = req.get_param_as_list("fields")
     select_cols = []
@@ -250,7 +318,34 @@ def on_post(req, resp):
 
     All of these parameters are required.
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        POST api/v0/events   HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "start": 1493667700,
+            "end": 149368700,
+            "user": "jdoe",
+            "team": "team-foo",
+            "role": "primary",
+        }
+
+    **Example response:**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 201 Created
+        Content-Type: application/json
+
+        1
+
+
+    :statuscode 201: Event created
+    :statuscode 400: Event validation checks failed
+    :statuscode 422: Event creation failed: nonexistent role/event/team
     """
     data = load_json_body(req)
     now = time.time()

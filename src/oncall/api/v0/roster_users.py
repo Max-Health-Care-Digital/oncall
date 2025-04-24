@@ -68,7 +68,22 @@ def on_get(req, resp, team, roster):
 def on_post(req, resp, team, roster):
     """
     Add user to a roster for a team. On successful creation, returns that user's information.
-    ... (docstring unchanged) ...
+    
+    **Example request**:
+
+    .. sourcecode:: http
+
+        GET /api/v0/teams/team-foo/rosters/roster-foo/users  HTTP/1.1
+        Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        ["jdoe", "asmith"]
     """
     try:
         team, roster = unquote(team), unquote(roster)

@@ -226,7 +226,55 @@ def on_get(req, resp):
     Get users filtered by params. Returns a list of user info objects for all users matching
     filter parameters.
 
-    ... (docstring remains the same) ...
+    :query id: id of the user
+    :query id__eq: id of the user
+    :query id__gt: id greater than
+    :query id__ge: id greater than or equal
+    :query id__lt: id less than
+    :query id__le: id less than or equal
+    :query name: username
+    :query name__eq: username
+    :query name__contains: username contains param
+    :query name__startswith: username starts with param
+    :query name__endswith: username ends with param
+    :query full_name: full name
+    :query full_name__eq: username
+    :query full_name__contains: full name contains param
+    :query full_name__startswith: full name starts with param
+    :query full_name__endswith: full name ends with param
+    :query active: whether user has been deactivated (deleted)
+
+
+    **Example request**:
+
+    .. sourcecode:: http
+
+       GET /api/v0/users?name=jdoe   HTTP/1.1
+       Host: example.com
+
+    **Example response**:
+
+    .. sourcecode:: http
+
+        HTTP/1.1 200 OK
+        Content-Type: application/json
+
+        [
+            {
+                "active": 1,
+                "contacts": {
+                    "call": "+1 111-111-1111",
+                    "email": "jdoe@example.com",
+                    "im": "jdoe",
+                    "sms": "+1 111-111-1111"
+                },
+                "full_name": "John Doe",
+                "id": 1234,
+                "name": "jdoe",
+                "photo_url": "image.example.com",
+                "time_zone": "US/Pacific"
+            }
+        ]
     """
     # on_get calls get_user_data, which now handles its own connection management
     # or uses a provided one (not the case here).

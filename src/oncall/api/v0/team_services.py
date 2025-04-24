@@ -65,7 +65,27 @@ def on_post(req, resp, team):
     that service to the team specified in the URL. Note that this endpoint does
     not create a service; it expects this service to already exist.
 
-    ... (docstring remains the same) ...
+    **Example request:**
+
+    .. sourcecode:: http
+
+        POST api/v0/teams/team-foo/services   HTTP/1.1
+        Content-Type: application/json
+
+        {
+            "name": "service-foo",
+        }
+
+    **Example response:**
+
+    .. sourcecode:: http
+
+        HTTP/1.1 201 Created
+        Content-Type: application/json
+
+    :statuscode 201: Successful create
+    :statuscode 422: Mapping creation failed; Possible errors: Invalid service/team name,
+                     service already mapped to the team, service mapped to another team
     """
     team_name = unquote(team)  # Renamed variable
     check_team_auth(team_name, req)  # Use team_name
